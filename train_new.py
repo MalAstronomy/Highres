@@ -38,6 +38,8 @@ from Embedding.MHA import MultiHeadAttentionwithMLP, GPTLanguageModel
 # from Embedding.MLP import MLP 
 from Embedding.CausalConv1D import CausalConv1d, CausalConvLayers
 
+import GISIC
+
 # from ees import Simulator, LOWER, UPPER
 # from Embedding.SelfAttention import SelfAttention
 # import Embedding.CNN as CNN
@@ -69,7 +71,7 @@ class NPEWithEmbedding(nn.Module):
         super().__init__()
 
         self.embedding = nn.Sequential(
-            SoftClip(100.0),
+            # SoftClip(100.0),
             # CNNwithAttention(2, 128),
 
             # MultiHeadAttentionwithMLP(128, 4, 8, 377),
@@ -83,13 +85,13 @@ class NPEWithEmbedding(nn.Module):
             #     activation=nn.ELU,
             # ),
 
-            CausalConvLayers(2, 64, 32),  #in_channels, out_channels, MM
+            CausalConvLayers(2, 4, 32, 2, 32),  #in_channels, out_channels, MM, stride, kernel_size
             nn.Flatten(),
             )
         # self.flatten()
 
         self.npe = NPE(
-            19, 256,
+            19, 200,
             #moments=((l + u) / 2, (u - l) / 2),43q  r7890q q=-09875            transforms=3,
             build=NAF,
             hidden_features=[512] * 5,
@@ -140,7 +142,7 @@ def noisy(theta, x ):
     data_uncertainty = Data().err /250
     x[:,0, :] = x[:,0, :] + torch.from_numpy(data_uncertainty) * torch.randn(x[:,0,:].size())
     # theta = theta.numpy()
-    print(theta.size(), x.size())
+    # print(theta.size(), x.size())
     return theta, x
    
 
@@ -178,7 +180,7 @@ def train(i: int):
 
     # Training
 #     process = Processing()
-    estimator = NPEWithEmbedding().cuda()
+    estimator = NPEWithEmbedding().double().cuda()
     prior = BoxUniform(torch.tensor(param_set.lower).cuda(), torch.tensor(param_set.upper).cuda())
     loss = NPELoss(estimator)
     optimizer = optim.AdamW(estimator.parameters(), lr=1e-4, weight_decay=1e-2)
@@ -195,11 +197,12 @@ def train(i: int):
     def pipe(theta: Tensor, x: Tensor) -> Tensor:
 #         theta, x = noisy(process(theta,x))
         theta, x = noisy(theta,x)
+        v = torch.stack([torch.from_numpy(np.asarray(GISIC.normalize(x[i, 1, :].numpy(), x[i, 0, :].numpy(), sigma=30))) for i in range(len(x))]) #B, 3, 6144
         # theta, x = torch.from_numpy(theta).cuda(), torch.from_numpy(x).cuda()
         # x = torch.hstack((x[:, 0, :], x[:,1,:]))
         # print(x.size())
         # x = torch.permute(x, (0, 2, 1))
-        theta, x = theta.cuda(), x.cuda()
+        theta, x = theta.cuda(), v[:,:2,:].cuda()
         return loss(theta, x)
 
     for epoch in tqdm(range(2001), unit='epoch'):
