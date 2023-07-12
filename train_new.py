@@ -31,11 +31,12 @@ from zuko.distributions import BoxUniform
 from generate import param_set
 from parameter import *
 
-from Dataprocuring import Data 
+from DataProcuring import Data 
 from ProcessingSpec import ProcessSpec
-from Embedding.CNNwithAttention import CNNwithAttention
-from Embedding.MHA import MultiHeadAttentionwithMLP
-from Embedding.MLP import MLP 
+# from Embedding.CNNwithAttention import CNNwithAttention
+from Embedding.MHA import MultiHeadAttentionwithMLP, GPTLanguageModel
+# from Embedding.MLP import MLP 
+from Embedding.CausalConv1D import CausalConv1d, CausalConvLayers
 
 # from ees import Simulator, LOWER, UPPER
 # from Embedding.SelfAttention import SelfAttention
@@ -72,19 +73,23 @@ class NPEWithEmbedding(nn.Module):
             # CNNwithAttention(2, 128),
 
             # MultiHeadAttentionwithMLP(128, 4, 8, 377),
+            
+            # stacking()
 
-            ResMLP(
-                6144 , 64, hidden_features=[512] * 2 + [256] * 3 + [128] * 5, 
-                activation=nn.ELU,
-            ),
-            
-            stacking()
-            
+            # GPTLanguageModel(128, 4, 8, 377), #n_embedding, n_head, n_blocks, block_size
+
+            # ResMLP(
+            #     1000 , 64, hidden_features=[512] * 2 + [256] * 3 + [128] * 5, 
+            #     activation=nn.ELU,
+            # ),
+
+            CausalConvLayers(2, 64, 32),  #in_channels, out_channels, MM
+            nn.Flatten(),
             )
-        # self.flatten
+        # self.flatten()
 
         self.npe = NPE(
-            19, 128,
+            19, 256,
             #moments=((l + u) / 2, (u - l) / 2),43q  r7890q q=-09875            transforms=3,
             build=NAF,
             hidden_features=[512] * 5,
@@ -94,7 +99,9 @@ class NPEWithEmbedding(nn.Module):
         
 
     def forward(self, theta: Tensor, x: Tensor) -> Tensor:
+        print(x.is_cuda,theta.is_cuda)
         y = self.embedding(x)
+        print(y.is_cuda)
         # print(y.size())
         if torch.isnan(y).sum()>0:
              print('NaNs in embedding')
@@ -102,7 +109,9 @@ class NPEWithEmbedding(nn.Module):
 
     def flow(self, x: Tensor):  # -> Distribution
         # print(x.size())
+        print(x.is_cuda)
         out = self.npe.flow(self.embedding(x).to(torch.double)) 
+        print(out.is_cuda)
 #         print(type(out))
 #         if np.any(np.isnan(out.detach().cpu().numpy())):
 #              print('NaNs in flow')
@@ -131,6 +140,7 @@ def noisy(theta, x ):
     data_uncertainty = Data().err /250
     x[:,0, :] = x[:,0, :] + torch.from_numpy(data_uncertainty) * torch.randn(x[:,0,:].size())
     # theta = theta.numpy()
+    print(theta.size(), x.size())
     return theta, x
    
 

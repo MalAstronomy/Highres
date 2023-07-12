@@ -1,6 +1,9 @@
 import torch.nn as nn
 import torch
 from torch.nn import functional as F
+import numpy as np
+
+# device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Hyperparameters
 # batch_size = 32
@@ -115,27 +118,42 @@ class GPTLanguageModel(nn.Module):
         self.lm_head = nn.Linear(n_embedding, vocab_size)
         
     def forward(self, x): # (B, T)
-        h = x  #(B, 2, 6144) L = 6144
+        # h = x  #(B, 2, 6144) L = 6144
         # print('1', h.size()) 
-        # h = self.maxpool(h)  #(B, 2, 377) L' = 377
+        # 
         # print('2', h.size())
-        h = torch.permute(h, (0, 2, 1)) #(B, L', 2)
+        x = torch.permute(x, (0, 2, 1)) #(B, 6144, 2)
+        print(x.is_cuda, 'a')
         # print('3', h.size())
-        h = self.e2(self.f(self.e1(self.g(h)))) #(B, L', 128)
-        B, T, C = h.shape
-        h = torch.tensor(h, dtype=torch.int64)
-        tok_emb = self.token_embedding_table(h) # (B, T, C)
-        pos_emb = self.position_embedding_table(torch.arange(T)) # (T, C)
-        hh = tok_emb + pos_emb # (B, T, C)
-        hh = self.blocks(hh.double())
-        hh = self.ln_f(hh)
-        hh = self.e(hh) #(B, 48256)
-        hh = self.e1(self.l3(self.e1(self.l2(self.e1(self.l1(hh)))))) #(B, 1000)
+        x = self.e2(self.f(self.e1(self.g(x)))) #(B, L, 128)
+        print(x.is_cuda, 'b', np.shape(x), np.shape(x.long()))
+
+        B, T, C = x.shape
+        tok_emb = self.token_embedding_table(x) # (B, T, C)
+        print(tok_emb.is_cuda, '1', np.shape(tok_emb))
+        pos_emb = self.position_embedding_table(torch.arange(T, device="cuda")) # (T, C)
+        print(pos_emb.is_cuda, '2', np.shape(pos_emb))
+        x = tok_emb + pos_emb # (B, T, C)
+        print(x.is_cuda)
+        x = self.blocks(x.double()) # B, 6144, 128
+        print(x.is_cuda)
+        x = self.ln_f(x) # B, 6144, 128
+        print(x.is_cuda)
+
+        x = torch.permute(x, (0, 2, 1)) # B, 128, 6144
+        print(x.is_cuda)
+        x = self.maxpool(x)  #(B, 128, 377) L' = 377
+        print(x.is_cuda)
+
+        x = self.e(x) #(B, 48256)
+        print(x.is_cuda)
+        x = self.e1(self.l3(self.e1(self.l2(self.e1(self.l1(x)))))) #(B, 1000)
+        print(x.is_cuda)
 
         # logits = self.lm_head(h) # (B, T, V)
         # return logits
 
-        return hh
+        return x
 
 class MultiHeadAttentionwithMLP(nn.Module):
     def __init__(self,n_embedding, n_head, n_blocks, block_size):
