@@ -40,26 +40,23 @@ class CausalConv1d(nn.Module):
 
 class CausalConvLayers(nn.Module):
 
-    def __init__(self, in_channels, out_channels, MM):
+    def __init__(self, in_channels, out_channels, MM, stride, kernel_size):
         super(CausalConvLayers, self).__init__()
 
         self.layers= nn.Sequential(
-            CausalConv1d(in_channels=in_channels, out_channels=MM, dilation=1, kernel_size=32, A=True, bias = True), 
+            CausalConv1d(in_channels=2, out_channels=32, dilation=1, kernel_size=64, A=True, bias = True, stride = 2), #
             nn.LeakyReLU(), 
-            CausalConv1d(in_channels=MM, out_channels=MM, dilation=2, kernel_size=32, A=False, bias = True), 
+            CausalConv1d(in_channels=32, out_channels=32, dilation=2, kernel_size=64, A=False, bias = True, stride = 2), 
             nn.LeakyReLU(), 
-            CausalConv1d(in_channels=MM, out_channels=MM, dilation=2, kernel_size=32, A=False, bias = True), 
+            CausalConv1d(in_channels=32, out_channels=32, dilation=4, kernel_size=64, A=False, bias = True, stride = 2), 
             nn.LeakyReLU(), 
-            CausalConv1d(in_channels=MM, out_channels=MM*2, dilation=2, kernel_size=32, A=False, bias = True), 
-            nn.LeakyReLU(), 
-            Conv1d(in_channels=MM*2, out_channels=MM*4, kernel_size=64, stride= 32), 
-            nn.LeakyReLU(),
-            Conv1d(in_channels=MM*4, out_channels= out_channels, kernel_size=64, stride= 32), 
-            nn.LeakyReLU(),
+            CausalConv1d(in_channels=32, out_channels=4, dilation=8, kernel_size=64, A=False, bias = True,  stride = 2), 
+            nn.LeakyReLU(),  
             )
         self.flatten = nn.Flatten()
 
     def forward(self,x):
+        print(x.size())
         x = self.layers(x)
         x = self.flatten(x)
         return x
