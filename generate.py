@@ -96,9 +96,31 @@ def simulate(i: int):
     # )
 
     ######################################################################################################
-    #generating dataset with full theta
+    # #generating dataset with full theta
 
-    loader = H5Dataset(f'samples_{i:06d}.h5', batch_size=32)
+    # loader = H5Dataset(path/ f'samples_{i:06d}.h5', batch_size=32)
+
+    # def filter_nan(theta, x):
+    #     mask = torch.any(torch.isnan(x), dim=-1)
+    #     mask += torch.any(~torch.isfinite(x), dim=-1)
+    #     return theta[~mask], x[~mask]
+
+    # def Processing_fulltheta(theta,x):
+    #     theta_new, x_new = process(theta, x)
+    #     theta_new, x_new = filter_nan(theta_new, x_new)
+    #     return theta_new, x_new
+        
+    # H5Dataset.store(
+    #     starmap(Processing_fulltheta, loader),
+    #     path_full / f'samples_{i:06d}.h5',
+    #     size=32,
+    # )
+
+    # ######################################################################################################
+
+    #   generating dataset with interpolated fluxes to observed wavelengths
+
+    loader = H5Dataset(path_full/ f'samples_{i:06d}.h5', batch_size=32)
 
     def filter_nan(theta, x):
         mask = torch.any(torch.isnan(x), dim=-1)
@@ -116,7 +138,9 @@ def simulate(i: int):
         size=32,
     )
 
-    ######################################################################################################
+    # ######################################################################################################
+
+
 
 #@after(simulate)
 #@job(cpus=1, ram='4GB', time='01:00:00')
