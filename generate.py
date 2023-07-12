@@ -17,9 +17,12 @@ from lampe.data import JointLoader, H5Dataset
 from parameter import *
 # from spectra_simulator import *
 
+from ProcessingSpec import ProcessSpec
 
-path = Path('./ear/data') 
+scratch = os.environ.get('SCRATCH', '')
 
+path = Path(scratch) / 'highres-sbi/data'
+path_full = Path(scratch) / 'highres-sbi/data_fulltheta'
 
 with_isotope = True
 include_clouds = True
@@ -68,27 +71,52 @@ species = ['CO_main_iso', 'H2O_main_iso']
 if with_isotope:
     species += ['CO_36']
 
-#@ensure(lambda i: (path / f'samples_{i:06d}.h5').exists())
+process = ProcessSpec()
+
+#@ensure(lambda i: (path_full / f'samples_{i:06d}.h5').exists())
 #@job(array=1024, cpus=1, ram='4GB', time='1-00:00:00')
 def simulate(i: int):
     #prior = BoxUniform(torch.tensor(LOWER), torch.tensor(UPPER))
     #simulator = Simulator(noisy=False)
-    sim_res = 2e5
-    dlam = 2.350/sim_res
-    wavelengths = np.arange(2.320, 2.371, dlam)
-    simulator = SpectrumMaker(wavelengths=wavelengths, param_set=param_set, lbl_opacity_sampling=2)
-    loader = JointLoader(param_set, simulator, batch_size=16, numpy=False)
+    # sim_res = 2e5
+    # dlam = 2.350/sim_res
+    # wavelengths = np.arange(2.320, 2.371, dlam)
+    # simulator = SpectrumMaker(wavelengths=wavelengths, param_set=param_set, lbl_opacity_sampling=2)
+    # loader = JointLoader(param_set, simulator, batch_size=16, numpy=False)
+
+    # def filter_nan(theta, x):
+    #     mask = torch.any(torch.isnan(x), dim=-1)
+    #     mask += torch.any(~torch.isfinite(x), dim=-1)
+    #     return theta[~mask], x[~mask]
+
+    # H5Dataset.store(
+    #     starmap(filter_nan, loader),
+    #     path / f'samples_{i:06d}.h5',
+    #     size=32,
+    # )
+
+    ######################################################################################################
+    #generating dataset with full theta
+
+    loader = H5Dataset(f'samples_{i:06d}.h5', batch_size=32)
 
     def filter_nan(theta, x):
         mask = torch.any(torch.isnan(x), dim=-1)
         mask += torch.any(~torch.isfinite(x), dim=-1)
         return theta[~mask], x[~mask]
 
+    def Processing_fulltheta(theta,x):
+        theta_new, x_new = process(theta, x)
+        theta_new, x_new = filter_nan(theta_new, x_new)
+        return theta_new, x_new
+        
     H5Dataset.store(
-        starmap(filter_nan, loader),
-        path / f'samples_{i:06d}.h5',
+        starmap(Processing_fulltheta, loader),
+        path_full / f'samples_{i:06d}.h5',
         size=32,
     )
+
+    ######################################################################################################
 
 #@after(simulate)
 #@job(cpus=1, ram='4GB', time='01:00:00')
@@ -138,14 +166,14 @@ def event():
     )
 
 if __name__ == '__main__':
-    N_workers = 8
-    N_datasets = 100
-    #f = lambda x: simulate(simulator, param_set, x)
-    print('Testing...')
-    simulate(1)
-    print('Done testing, simulating for real...')
-    with Pool(N_workers) as p:
-        p.map(simulate, np.arange(2, N_datasets+1))
+    # N_workers = 8
+    # N_datasets = 100
+    # #f = lambda x: simulate(simulator, param_set, x)
+    # print('Testing...')
+    # simulate(1)
+    # print('Done testing, simulating for real...')
+    # with Pool(N_workers) as p:
+    #     p.map(simulate, np.arange(2, N_datasets+1))
     aggregate()
 
     #for i in range(10):
