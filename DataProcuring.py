@@ -5,7 +5,7 @@ import astropy.units as u
 
 
 class Data():
-    def __init__(self, path= 'data_to_fit.dat'):
+    def __init__(self, path= '/home/mvasist/Highres/data_to_fit.dat'):
         self.path = Path(path)
         self.data = np.loadtxt(self.path)
         self.wl, f, er, _, trans = self.data.T
