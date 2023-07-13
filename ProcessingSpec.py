@@ -43,10 +43,10 @@ class ProcessSpec():
             xi = fastRotBroad(self.model_wavelengths,xi, param_dict['limb_dark'], param_dict['vsini'])
             shifted_wavelengths = (1+param_dict['rv']/const.c.to(u.km/u.s).value) * self.model_wavelengths
             # Convolve to instrument resolution
-            x_obs[i, 0, :] = np.interp(self.data_wavelengths, shifted_wavelengths, xi)
+            x_obs[i, 0, :] = np.interp(self.data_wavelengths, shifted_wavelengths, xi) #flux at data_wavelengths
         # Scaling
         x_obs[:,0] = x_obs[:,0] * self.flux_scaling
-        x_obs[:,1, :] = self.data_wavelengths_norm
+        x_obs[:, 1, :] = self.data_wavelengths_norm
 #       if np.any(np.isnan(x_obs)):
 #       print('NaNs in x_obs') 
         return x_obs

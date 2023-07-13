@@ -10,8 +10,6 @@ from cloud_cond import return_cloud_mass_fraction, simple_cdf_MgSiO3, simple_cdf
 from PyAstronomy.pyasl import fastRotBroad
 from petitRADTRANS.physics import PT_ret_model
 
-
-
 def abundances(press, temp, feh, C_O, P_quench=None):
     COs = np.ones_like(press)*C_O
     fehs = np.ones_like(press)*feh

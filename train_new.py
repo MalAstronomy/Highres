@@ -49,6 +49,7 @@ scratch = os.environ.get('SCRATCH', '')
 datapath = Path(scratch) / 'highres-sbi/data_fulltheta'
 savepath = Path(scratch) / 'highres-sbi/runs'
 
+d = Data()
 
 class SoftClip(nn.Module):
     def __init__(self, bound: float = 1.0):
@@ -80,13 +81,13 @@ class NPEWithEmbedding(nn.Module):
 
             # GPTLanguageModel(128, 4, 8, 377), #n_embedding, n_head, n_blocks, block_size
 
-            # ResMLP(
-            #     1000 , 64, hidden_features=[512] * 2 + [256] * 3 + [128] * 5, 
-            #     activation=nn.ELU,
-            # ),
+            ResMLP(
+                6144 , 64, hidden_features=[512] * 2 + [256] * 3 + [128] * 5, 
+                activation=nn.ELU,
+            ),
 
-            CausalConvLayers(2, 4, 32, 2, 32),  #in_channels, out_channels, MM, stride, kernel_size
-            nn.Flatten(),
+            # CausalConvLayers(1, 4, 32, 2, 32),  #in_channels, out_channels, MM, stride, kernel_size
+            # nn.Flatten(),
             )
         # self.flatten()
 
@@ -140,7 +141,8 @@ class BNPELoss(nn.Module):
 def noisy(theta, x ):
 #     data_uncertainty = Data().err * Data().flux_scaling 
     data_uncertainty = Data().err /250
-    x[:,0, :] = x[:,0, :] + torch.from_numpy(data_uncertainty) * torch.randn(x[:,0,:].size())
+    # x[:,0, :] = x[:,0, :] + torch.from_numpy(data_uncertainty) * torch.randn(x[:,0,:].size())
+    x = x + torch.from_numpy(data_uncertainty) * torch.randn_like(x)
     # theta = theta.numpy()
     # print(theta.size(), x.size())
     return theta, x
@@ -195,14 +197,13 @@ def train(i: int):
     )
 
     def pipe(theta: Tensor, x: Tensor) -> Tensor:
-#         theta, x = noisy(process(theta,x))
         theta, x = noisy(theta,x)
-        v = torch.stack([torch.from_numpy(np.asarray(GISIC.normalize(x[i, 1, :].numpy(), x[i, 0, :].numpy(), sigma=30))) for i in range(len(x))]) #B, 3, 6144
+        v = torch.stack([torch.from_numpy(np.asarray(GISIC.normalize(d.data_wavelengths_norm, x.numpy(), sigma=30))) for i in range(len(x))]) #B, 3, 6144 , wavelengths, flux, continuum
         # theta, x = torch.from_numpy(theta).cuda(), torch.from_numpy(x).cuda()
         # x = torch.hstack((x[:, 0, :], x[:,1,:]))
         # print(x.size())
         # x = torch.permute(x, (0, 2, 1))
-        theta, x = theta.cuda(), v[:,:2,:].cuda()
+        theta, x = theta.cuda(), v[:,1,:].cuda()
         return loss(theta, x)
 
     for epoch in tqdm(range(2001), unit='epoch'):
@@ -210,7 +211,7 @@ def train(i: int):
         start = time.time()
 
         losses = torch.stack([
-            step(pipe(theta, x))
+            step(pipe(theta, x)) #16,6144
             for theta, x in islice(trainset, 1024)
         ]).cpu().numpy()
         
