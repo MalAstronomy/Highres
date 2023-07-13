@@ -97,7 +97,7 @@ class Block(nn.Module):
 
 
 class GPTLanguageModel(nn.Module):
-    def __init__(self, n_embedding, n_head, n_blocks, block_size):
+    def __init__(self, n_embedding, n_head, n_blocks, block_size, device = "cpu"):
         super().__init__()
         # self.maxpool = nn.AvgPool1d(128, stride=16)
         self.g  = nn.Linear(2, 32) 
@@ -116,42 +116,29 @@ class GPTLanguageModel(nn.Module):
         self.blocks = nn.Sequential(*[Block(n_embedding, n_head, block_size) for _ in range(n_blocks)])
         self.ln_f = nn.LayerNorm(n_embedding) # final layer norm
         self.lm_head = nn.Linear(n_embedding, vocab_size)
+
+        self.device = device
         
     def forward(self, x): # (B, T)
         # h = x  #(B, 2, 6144) L = 6144
-        # print('1', h.size()) 
-        # 
-        # print('2', h.size())
-        x = torch.permute(x, (0, 2, 1)) #(B, 6144, 2)
-        print(x.is_cuda, 'a')
-        # print('3', h.size())
-        x = self.e2(self.f(self.e1(self.g(x)))) #(B, L, 128)
-        print(x.is_cuda, 'b', np.shape(x), np.shape(x.long()))
+        # x = torch.permute(x, (0, 2, 1)) #(B, 6144, 2)
+        # print(x.is_cuda, 'a')
+        # x = self.e2(self.f(self.e1(self.g(x)))) #(B, L, 128)
+        # print(x.is_cuda, 'b', np.shape(x), np.shape(x.long()))
 
-        B, T, C = x.shape
-        tok_emb = self.token_embedding_table(x) # (B, T, C)
-        print(tok_emb.is_cuda, '1', np.shape(tok_emb))
-        pos_emb = self.position_embedding_table(torch.arange(T, device="cuda")) # (T, C)
-        print(pos_emb.is_cuda, '2', np.shape(pos_emb))
+        B, T = x.shape # B, 6144
+        tok_emb = self.token_embedding_table(x.long()) # (B, T, C)
+        print(tok_emb.size())
+        pos_emb = self.position_embedding_table(torch.arange(T, device= self.device)) # (T, C)
         x = tok_emb + pos_emb # (B, T, C)
-        print(x.is_cuda)
-        x = self.blocks(x.double()) # B, 6144, 128
-        print(x.is_cuda)
-        x = self.ln_f(x) # B, 6144, 128
-        print(x.is_cuda)
+        x = self.blocks(x.double()) # B, 6144, C
+        x = self.ln_f(x) # B, 6144, C
 
-        x = torch.permute(x, (0, 2, 1)) # B, 128, 6144
-        print(x.is_cuda)
+        x = torch.permute(x, (0, 2, 1)) # B, C, 6144
         x = self.maxpool(x)  #(B, 128, 377) L' = 377
-        print(x.is_cuda)
 
         x = self.e(x) #(B, 48256)
-        print(x.is_cuda)
         x = self.e1(self.l3(self.e1(self.l2(self.e1(self.l1(x)))))) #(B, 1000)
-        print(x.is_cuda)
-
-        # logits = self.lm_head(h) # (B, T, V)
-        # return logits
 
         return x
 

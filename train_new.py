@@ -81,13 +81,13 @@ class NPEWithEmbedding(nn.Module):
 
             # GPTLanguageModel(128, 4, 8, 377), #n_embedding, n_head, n_blocks, block_size
 
-            ResMLP(
-                6144 , 64, hidden_features=[512] * 2 + [256] * 3 + [128] * 5, 
-                activation=nn.ELU,
-            ),
+            # ResMLP(
+            #     6144 , 64, hidden_features=[512] * 2 + [256] * 3 + [128] * 5, 
+            #     activation=nn.ELU,
+            # ),
 
-            # CausalConvLayers(1, 4, 32, 2, 32),  #in_channels, out_channels, MM, stride, kernel_size
-            # nn.Flatten(),
+            CausalConvLayers(1, 4, 32, 2, 32),  #in_channels, out_channels, MM, stride, kernel_size
+            nn.Flatten(),
             )
         # self.flatten()
 
@@ -198,7 +198,7 @@ def train(i: int):
 
     def pipe(theta: Tensor, x: Tensor) -> Tensor:
         theta, x = noisy(theta,x)
-        v = torch.stack([torch.from_numpy(np.asarray(GISIC.normalize(d.data_wavelengths_norm, x.numpy(), sigma=30))) for i in range(len(x))]) #B, 3, 6144 , wavelengths, flux, continuum
+        v = torch.stack([torch.from_numpy(np.asarray(GISIC.normalize(d.data_wavelengths_norm, x[i].numpy(), sigma=30))) for i in range(len(x))]) #B, 3, 6144 , wavelengths, flux, continuum
         # theta, x = torch.from_numpy(theta).cuda(), torch.from_numpy(x).cuda()
         # x = torch.hstack((x[:, 0, :], x[:,1,:]))
         # print(x.size())
@@ -211,7 +211,7 @@ def train(i: int):
         start = time.time()
 
         losses = torch.stack([
-            step(pipe(theta, x)) #16,6144
+            step(pipe(theta, x[:,0])) #16,6144
             for theta, x in islice(trainset, 1024)
         ]).cpu().numpy()
         
@@ -221,7 +221,7 @@ def train(i: int):
 
         with torch.no_grad():
             losses_val = torch.stack([
-                pipe(theta, x)
+                pipe(theta, x[:,0])
                 for theta, x in islice(validset, 256)
             ]).cpu().numpy()
 

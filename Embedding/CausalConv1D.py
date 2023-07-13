@@ -44,20 +44,20 @@ class CausalConvLayers(nn.Module):
         super(CausalConvLayers, self).__init__()
 
         self.layers= nn.Sequential(
-            CausalConv1d(in_channels=2, out_channels=32, dilation=1, kernel_size=64, A=True, bias = True, stride = 2), #
+            CausalConv1d(in_channels=in_channels, out_channels=32, dilation=1, kernel_size=64, A=True, bias = True, stride = 2), #
             nn.LeakyReLU(), 
             CausalConv1d(in_channels=32, out_channels=32, dilation=2, kernel_size=64, A=False, bias = True, stride = 2), 
             nn.LeakyReLU(), 
             CausalConv1d(in_channels=32, out_channels=32, dilation=4, kernel_size=64, A=False, bias = True, stride = 2), 
             nn.LeakyReLU(), 
-            CausalConv1d(in_channels=32, out_channels=4, dilation=8, kernel_size=64, A=False, bias = True,  stride = 2), 
+            CausalConv1d(in_channels=32, out_channels=out_channels, dilation=8, kernel_size=64, A=False, bias = True,  stride = 2), 
             nn.LeakyReLU(),  
             )
         self.flatten = nn.Flatten()
 
     def forward(self,x):
-        print(x.size())
-        x = self.layers(x)
+        # print(x.size())
+        x = self.layers(x.unsqueeze(1))
         x = self.flatten(x)
         return x
 

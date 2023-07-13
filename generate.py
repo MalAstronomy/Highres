@@ -18,11 +18,15 @@ from parameter import *
 # from spectra_simulator import *
 
 from ProcessingSpec import ProcessSpec
+from DataProcuring import Data
+
+import GISIC
 
 scratch = os.environ.get('SCRATCH', '')
 
 path = Path(scratch) / 'highres-sbi/data'
 path_full = Path(scratch) / 'highres-sbi/data_fulltheta'
+path_norm = Path(scratch) / 'highres-sbi/data_fulltheta_norm'
 
 with_isotope = True
 include_clouds = True
@@ -96,7 +100,7 @@ def simulate(i: int):
     # )
 
     ######################################################################################################
-    # #generating dataset with full theta
+    #  generating dataset with full theta
 
     # loader = H5Dataset(path/ f'samples_{i:06d}.h5', batch_size=32)
 
@@ -118,7 +122,7 @@ def simulate(i: int):
 
     # ######################################################################################################
 
-    #   generating dataset with interpolated fluxes to observed wavelengths
+    #   generating dataset with normalized fluxes using GISIC
 
     loader = H5Dataset(path_full/ f'samples_{i:06d}.h5', batch_size=32)
 
@@ -126,15 +130,22 @@ def simulate(i: int):
         mask = torch.any(torch.isnan(x), dim=-1)
         mask += torch.any(~torch.isfinite(x), dim=-1)
         return theta[~mask], x[~mask]
+    
+    def noisy(theta, x ):
+        data_uncertainty = Data().err /250
+        x = x + torch.from_numpy(data_uncertainty) * torch.randn_like(x)
+        return theta, x
 
-    def Processing_fulltheta(theta,x):
-        theta_new, x_new = process(theta, x)
+    def normalizing(theta,x):
+        theta, x = noisy(theta,x[:,0,:])
+        v = torch.stack([torch.from_numpy(np.asarray(GISIC.normalize(Data().data_wavelengths_norm, x[i].numpy(), sigma=30))) for i in range(len(x))]) #B, 3, 6144 , wavelengths, flux, continuum
+        theta_new, x_new = theta, v[:,1,:]
         theta_new, x_new = filter_nan(theta_new, x_new)
         return theta_new, x_new
         
     H5Dataset.store(
-        starmap(Processing_fulltheta, loader),
-        path_full / f'samples_{i:06d}.h5',
+        starmap(normalizing, loader),
+        path_norm / f'samples_{i:06d}.h5',
         size=32,
     )
 
