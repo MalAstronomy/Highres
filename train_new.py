@@ -39,6 +39,8 @@ from Embedding.MHA import MultiHeadAttentionwithMLP, GPTLanguageModel
 from Embedding.CausalConv1D import CausalConv1d, CausalConvLayers
 
 import GISIC
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 # from ees import Simulator, LOWER, UPPER
 # from Embedding.SelfAttention import SelfAttention
@@ -72,7 +74,7 @@ class NPEWithEmbedding(nn.Module):
         super().__init__()
 
         self.embedding = nn.Sequential(
-            # SoftClip(100.0),
+            SoftClip(100.0),
             # CNNwithAttention(2, 128),
 
             # MultiHeadAttentionwithMLP(128, 4, 8, 377),
@@ -92,7 +94,7 @@ class NPEWithEmbedding(nn.Module):
         # self.flatten()
 
         self.npe = NPE(
-            19, 200,
+            19, 200, 
             #moments=((l + u) / 2, (u - l) / 2),43q  r7890q q=-09875            transforms=3,
             build=NAF,
             hidden_features=[512] * 5,
@@ -139,8 +141,8 @@ class BNPELoss(nn.Module):
                     
                     
 def noisy(theta, x ):
-#     data_uncertainty = Data().err * Data().flux_scaling 
-    data_uncertainty = Data().err /250
+    data_uncertainty = Data().err * Data().flux_scaling*10
+    # data_uncertainty = Data().err /250
     # x[:,0, :] = x[:,0, :] + torch.from_numpy(data_uncertainty) * torch.randn(x[:,0,:].size())
     x = x + torch.from_numpy(data_uncertainty) * torch.randn_like(x)
     # theta = theta.numpy()
@@ -153,9 +155,10 @@ def train(i: int):
 
     config_dict = {
         
-                'embedding': 'ResMLP[2,3,5] with stacking', #'MAH_nopositional-512, 8, 8, 512',  #shallow = [2,3,5], deep = [3,5,7]
-                'embedding_output_len' : '64', 
-                'NPE_input_len': '128' ,
+                'embedding': 'CausalConv(1, 4, 32, 2, 32)', #'MAH_nopositional-512, 8, 8, 512',  #shallow = [2,3,5], deep = [3,5,7] ResMLP[2,3,5]
+                'embedding features' : 'in_channels, out_channels, MM, stride, kernel_size', 
+                'embedding_output_len' : '200', 
+                'NPE_input_len': '200' ,
                 'flow': 'NAF',
                 'transforms': 3, 
                 'hidden_features': 512, # hidden layers of the autoregression network
@@ -168,13 +171,13 @@ def train(i: int):
                 'patience': 32,
                 'epochs': 2000,
                 'stop_criterion': 'early', 
-                'batch_size': 32,
+                'batch_size': 16,
                 'gradient_steps_train': 1024, 
                 'gradient_steps_valid': 256
              } 
 
     # Run
-    run = wandb.init(project='highres',  config = config_dict)
+    run = wandb.init(project='highres-CausalConv1D',  config = config_dict)
 
     # Data
     trainset = H5Dataset(datapath / 'train.h5', batch_size=16, shuffle=True)
@@ -198,12 +201,15 @@ def train(i: int):
 
     def pipe(theta: Tensor, x: Tensor) -> Tensor:
         theta, x = noisy(theta,x)
-        v = torch.stack([torch.from_numpy(np.asarray(GISIC.normalize(d.data_wavelengths_norm, x[i].numpy(), sigma=30))) for i in range(len(x))]) #B, 3, 6144 , wavelengths, flux, continuum
+        # v = torch.stack([torch.from_numpy(np.asarray(GISIC.normalize(d.data_wavelengths_norm, x[i].numpy(), sigma=30))) for i in range(len(x))]) #B, 3, 6144 , wavelengths, flux, continuum
+        # theta, x = theta.cuda(), v[:,1,:].cuda()
+
         # theta, x = torch.from_numpy(theta).cuda(), torch.from_numpy(x).cuda()
         # x = torch.hstack((x[:, 0, :], x[:,1,:]))
         # print(x.size())
         # x = torch.permute(x, (0, 2, 1))
-        theta, x = theta.cuda(), v[:,1,:].cuda()
+        
+        theta, x = theta.cuda(), x.cuda()
         return loss(theta, x)
 
     for epoch in tqdm(range(2001), unit='epoch'):

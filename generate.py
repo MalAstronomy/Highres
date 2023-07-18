@@ -5,7 +5,7 @@ import os
 import torch
 from multiprocessing import Pool
 
-#from dawgz import job, after, ensure, schedule
+from dawgz import job, after, ensure, schedule
 from itertools import starmap
 from pathlib import Path
 from typing import *
@@ -21,12 +21,15 @@ from ProcessingSpec import ProcessSpec
 from DataProcuring import Data
 
 import GISIC
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 scratch = os.environ.get('SCRATCH', '')
 
 path = Path(scratch) / 'highres-sbi/data'
 path_full = Path(scratch) / 'highres-sbi/data_fulltheta'
 path_norm = Path(scratch) / 'highres-sbi/data_fulltheta_norm'
+path_norm.mkdir(parents=True, exist_ok=True)
 
 with_isotope = True
 include_clouds = True
@@ -77,8 +80,8 @@ if with_isotope:
 
 process = ProcessSpec()
 
-#@ensure(lambda i: (path_full / f'samples_{i:06d}.h5').exists())
-#@job(array=1024, cpus=1, ram='4GB', time='1-00:00:00')
+# @ensure(lambda i: (path_norm / f'samples_{i:06d}.h5').exists())
+@job(array=3, cpus=1, ram='64GB', time='10-00:00:00')
 def simulate(i: int):
     #prior = BoxUniform(torch.tensor(LOWER), torch.tensor(UPPER))
     #simulator = Simulator(noisy=False)
@@ -100,7 +103,7 @@ def simulate(i: int):
     # )
 
     ######################################################################################################
-    #  generating dataset with full theta
+    #  generating dataset with full theta (this code is not tested)
 
     # loader = H5Dataset(path/ f'samples_{i:06d}.h5', batch_size=32)
 
@@ -123,31 +126,43 @@ def simulate(i: int):
     # ######################################################################################################
 
     #   generating dataset with normalized fluxes using GISIC
+    # @job(array=3, cpus=1, ram='64GB', time='10-00:00:00')
 
-    loader = H5Dataset(path_full/ f'samples_{i:06d}.h5', batch_size=32)
+    warnings.simplefilter(action='ignore', category=FutureWarning)
+
+    file = ['train.h5', 'valid.h5', 'test.h5']
+    # loader = H5Dataset(path_full/ f'samples_{i:06d}.h5', batch_size=32)
+    loader = H5Dataset(path_full/ file[i], batch_size=32)
 
     def filter_nan(theta, x):
         mask = torch.any(torch.isnan(x), dim=-1)
-        mask += torch.any(~torch.isfinite(x), dim=-1)
-        return theta[~mask], x[~mask]
+        mask1 = torch.any(~torch.isfinite(x[mask]), dim=-1)
+        return theta[mask][mask1], x[mask][mask1]
+    
     
     def noisy(theta, x ):
-        data_uncertainty = Data().err /250
+        data_uncertainty = Data().err * Data().flux_scaling * 10 
         x = x + torch.from_numpy(data_uncertainty) * torch.randn_like(x)
         return theta, x
 
     def normalizing(theta,x):
-        theta, x = noisy(theta,x[:,0,:])
-        v = torch.stack([torch.from_numpy(np.asarray(GISIC.normalize(Data().data_wavelengths_norm, x[i].numpy(), sigma=30))) for i in range(len(x))]) #B, 3, 6144 , wavelengths, flux, continuum
-        theta_new, x_new = theta, v[:,1,:]
-        theta_new, x_new = filter_nan(theta_new, x_new)
-        return theta_new, x_new
+        # theta, x = noisy(theta,x[:,0,:])
+        # v = torch.stack([torch.from_numpy(np.asarray(GISIC.normalize(Data().data_wavelengths_norm, x[i].numpy(), sigma=30))) for i in range(len(x))]) #B, 3, 6144 , wavelengths, flux, continuum
+        v = torch.stack([torch.from_numpy(np.array(GISIC.normalize(Data().data_wavelengths_norm, x[i, 0, :].numpy(), sigma=30))) for i in range(len(x))])
+        # wave, norm_flux, continuum =  v[:, 0, :], v[:, 1, :], v[:, 2, :]
+        # theta_new, x_new = theta, norm_flux
+        theta_new, x_new = theta, v
+        # theta_new, x_new = filter_nan(theta, x_new)
+        return theta_new, x_new 
+
         
     H5Dataset.store(
         starmap(normalizing, loader),
-        path_norm / f'samples_{i:06d}.h5',
-        size=32,
+        # path_norm / f'samples_{i:06d}.h5',
+        path_norm / file[i],
+        size= len(loader),
     )
+
 
     # ######################################################################################################
 
@@ -209,8 +224,19 @@ if __name__ == '__main__':
     # print('Done testing, simulating for real...')
     # with Pool(N_workers) as p:
     #     p.map(simulate, np.arange(2, N_datasets+1))
-    aggregate()
+    # simulate()
 
     #for i in range(10):
     #    simulate(simulator, param_set, i)
     #aggregate()
+
+    schedule(
+        simulate, # event,
+        name='Data generation',
+        backend='slurm',
+        prune=True,
+        env=[
+            'source ~/.bashrc',
+            'conda activate HighResear',
+        ]
+    )

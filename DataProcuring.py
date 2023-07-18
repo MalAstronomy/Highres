@@ -9,7 +9,7 @@ class Data():
         self.path = Path(path)
         self.data = np.loadtxt(self.path)
         self.wl, f, er, _, trans = self.data.T
-        self.flux, self.err = self.FluxandError_processing(f, er)
+        self.flux, self.flux_scaling, self.err = self.FluxandError_processing(f, er)
         self.model_wavelengths = self.get_modelW()
         self.data_wavelengths = self.wl/1000
         self.data_wavelengths_norm = self.norm_data_wavelengths()
@@ -24,11 +24,11 @@ class Data():
         flux[nans] = np.interp(self.wl[nans], self.wl[~nans], flux[~nans])
         flux = self.unit_conversion(flux)
         flux_scaling = 1./np.nanmean(flux)
-        
+
         err[nans] = np.interp(self.wl[nans], self.wl[~nans], err[~nans])
         err = self.unit_conversion(err)
                 
-        return flux_scaling, err 
+        return flux, flux_scaling, err 
         
     def get_modelW(self):
         sim_res = 2e5

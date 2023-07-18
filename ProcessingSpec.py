@@ -8,7 +8,7 @@ class ProcessSpec():
     d = Data()
     data_wavelengths = d.data_wavelengths
     model_wavelengths = d.model_wavelengths
-    flux_scaling = d.flux
+    flux_scaling = d.flux_scaling
     data_wavelengths_norm = d.data_wavelengths_norm
     
     def __call__(self, theta, x):
