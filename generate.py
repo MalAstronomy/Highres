@@ -20,16 +20,13 @@ from parameter import *
 from ProcessingSpec import ProcessSpec
 from DataProcuring import Data
 
+from torch.utils.data import DataLoader, Dataset, IterableDataset
+
 import GISIC
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-scratch = os.environ.get('SCRATCH', '')
-
-path = Path(scratch) / 'highres-sbi/data'
-path_full = Path(scratch) / 'highres-sbi/data_fulltheta'
-path_norm = Path(scratch) / 'highres-sbi/data_fulltheta_norm'
-path_norm.mkdir(parents=True, exist_ok=True)
+process = ProcessSpec()
 
 with_isotope = True
 include_clouds = True
@@ -78,10 +75,16 @@ species = ['CO_main_iso', 'H2O_main_iso']
 if with_isotope:
     species += ['CO_36']
 
-process = ProcessSpec()
 
-# @ensure(lambda i: (path_norm / f'samples_{i:06d}.h5').exists())
-@job(array=3, cpus=1, ram='64GB', time='10-00:00:00')
+scratch = os.environ.get('SCRATCH', '')
+path = Path(scratch) / 'highres-sbi/data'
+path_full = Path(scratch) / 'highres-sbi/data_fulltheta'
+path_norm = Path(scratch) / 'highres-sbi/data_fulltheta_norm'
+path_norm.mkdir(parents=True, exist_ok=True)
+
+# @ensure(lambda i: (path_full / f'samples_{i:06d}.h5').exists())
+# @job(array=3, cpus=1, ram='64GB', time='10-00:00:00')
+@job(array=200, cpus=1, ram='64GB', time='10-00:00:00')
 def simulate(i: int):
     #prior = BoxUniform(torch.tensor(LOWER), torch.tensor(UPPER))
     #simulator = Simulator(noisy=False)
@@ -114,8 +117,8 @@ def simulate(i: int):
 
     # def Processing_fulltheta(theta,x):
     #     theta_new, x_new = process(theta, x)
-    #     theta_new, x_new = filter_nan(theta_new, x_new)
-    #     return theta_new, x_new
+    #     # theta_new, x_new = filter_nan(theta_new, x_new)
+    #     return theta_new, x_new[:,0,:]
         
     # H5Dataset.store(
     #     starmap(Processing_fulltheta, loader),
@@ -130,9 +133,9 @@ def simulate(i: int):
 
     warnings.simplefilter(action='ignore', category=FutureWarning)
 
-    file = ['train.h5', 'valid.h5', 'test.h5']
-    # loader = H5Dataset(path_full/ f'samples_{i:06d}.h5', batch_size=32)
-    loader = H5Dataset(path_full/ file[i], batch_size=32)
+    # file = 'train.h5'
+    loader = H5Dataset(path_full/ f'samples_{i:06d}.h5', batch_size=32)
+    # loader = H5Dataset(path_full/ file, batch_size=32)
 
     def filter_nan(theta, x):
         mask = torch.any(torch.isnan(x), dim=-1)
@@ -148,18 +151,18 @@ def simulate(i: int):
     def normalizing(theta,x):
         # theta, x = noisy(theta,x[:,0,:])
         # v = torch.stack([torch.from_numpy(np.asarray(GISIC.normalize(Data().data_wavelengths_norm, x[i].numpy(), sigma=30))) for i in range(len(x))]) #B, 3, 6144 , wavelengths, flux, continuum
-        v = torch.stack([torch.from_numpy(np.array(GISIC.normalize(Data().data_wavelengths_norm, x[i, 0, :].numpy(), sigma=30))) for i in range(len(x))])
-        # wave, norm_flux, continuum =  v[:, 0, :], v[:, 1, :], v[:, 2, :]
-        # theta_new, x_new = theta, norm_flux
+        v = torch.stack([torch.from_numpy(np.array(GISIC.normalize(Data().data_wavelengths_norm, x[i, 0, :].numpy(), sigma=20))) for i in range(len(x))])
+        wave, norm_flux, continuum =  v[:, 0, :], v[:, 1, :], v[:, 2, :]
         theta_new, x_new = theta, v
         # theta_new, x_new = filter_nan(theta, x_new)
-        return theta_new, x_new 
+        # theta_new, x_new = filter_nan(theta_new, x_new)
+        return theta_new, x_new
 
         
     H5Dataset.store(
         starmap(normalizing, loader),
-        # path_norm / f'samples_{i:06d}.h5',
-        path_norm / file[i],
+        path_norm / f'samples_{i:06d}.h5',
+        # path_norm / file[i],
         size= len(loader),
     )
 
@@ -169,7 +172,23 @@ def simulate(i: int):
 
 
 #@after(simulate)
-#@job(cpus=1, ram='4GB', time='01:00:00')
+@job(array=26111, cpus=1, ram='32GB', time='01:00:00')
+def revaggregate(i: int):
+    file = 'train.h5'
+    torch.manual_seed(0)
+    trainset = H5Dataset(path_full/ file, batch_size=32)
+
+    for k, (theta, x) in enumerate(trainset):
+        if k == i:
+            loader = DataLoader(tuple(zip(theta,x)), batch_size=32)
+            H5Dataset.store(
+                # starmap(filter_nan, loader),
+                loader,
+                path_full / f'samples_{i:06d}.h5',
+                size=32,
+            )
+
+@job(cpus=1, ram='4GB', time='01:00:00')
 def aggregate():
     files = list(path.glob('samples_*.h5'))
     length = len(files)
@@ -231,7 +250,7 @@ if __name__ == '__main__':
     #aggregate()
 
     schedule(
-        simulate, # event,
+        simulate, #simulate, # event, revaggregate
         name='Data generation',
         backend='slurm',
         prune=True,

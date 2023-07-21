@@ -48,7 +48,7 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 
 scratch = os.environ.get('SCRATCH', '')
 # scratch = '/users/ricolandman/Research_data/npe_crires/'
-datapath = Path(scratch) / 'highres-sbi/data_fulltheta'
+datapath = Path(scratch) / 'highres-sbi/data_fulltheta_norm' #data_fulltheta
 savepath = Path(scratch) / 'highres-sbi/runs'
 
 d = Data()
@@ -74,7 +74,7 @@ class NPEWithEmbedding(nn.Module):
         super().__init__()
 
         self.embedding = nn.Sequential(
-            SoftClip(100.0),
+            # SoftClip(100.0),
             # CNNwithAttention(2, 128),
 
             # MultiHeadAttentionwithMLP(128, 4, 8, 377),
@@ -83,18 +83,21 @@ class NPEWithEmbedding(nn.Module):
 
             # GPTLanguageModel(128, 4, 8, 377), #n_embedding, n_head, n_blocks, block_size
 
-            # ResMLP(
-            #     6144 , 64, hidden_features=[512] * 2 + [256] * 3 + [128] * 5, 
-            #     activation=nn.ELU,
-            # ),
+            # nn.Flatten(),
 
-            CausalConvLayers(1, 4, 32, 2, 32),  #in_channels, out_channels, MM, stride, kernel_size
-            nn.Flatten(),
+            # CausalConvLayers(1, 4, 32, 2, 32),  #in_channels, out_channels, MM, stride, kernel_size
+
+            ResMLP(
+                1536 , 64, hidden_features=[512] * 2 + [256] * 3 + [128] * 5,  #1291 #6144, 3072, 1536
+                activation=nn.ELU,
+            ),
+
+            
             )
         # self.flatten()
 
         self.npe = NPE(
-            19, 200, 
+            19, 64, 
             #moments=((l + u) / 2, (u - l) / 2),43q  r7890q q=-09875            transforms=3,
             build=NAF,
             hidden_features=[512] * 5,
@@ -104,22 +107,15 @@ class NPEWithEmbedding(nn.Module):
         
 
     def forward(self, theta: Tensor, x: Tensor) -> Tensor:
-        print(x.is_cuda,theta.is_cuda)
         y = self.embedding(x)
-        print(y.is_cuda)
-        # print(y.size())
         if torch.isnan(y).sum()>0:
              print('NaNs in embedding')
         return self.npe(theta.to(torch.double), y)
 
     def flow(self, x: Tensor):  # -> Distribution
-        # print(x.size())
-        print(x.is_cuda)
         out = self.npe.flow(self.embedding(x).to(torch.double)) 
-        print(out.is_cuda)
-#         print(type(out))
-#         if np.any(np.isnan(out.detach().cpu().numpy())):
-#              print('NaNs in flow')
+        if np.any(np.isnan(out.detach().cpu().numpy())):
+             print('NaNs in flow')
         return out
     
 
@@ -141,7 +137,7 @@ class BNPELoss(nn.Module):
                     
                     
 def noisy(theta, x ):
-    data_uncertainty = Data().err * Data().flux_scaling*10
+    data_uncertainty = Data().err[:1536] * Data().flux_scaling*10
     # data_uncertainty = Data().err /250
     # x[:,0, :] = x[:,0, :] + torch.from_numpy(data_uncertainty) * torch.randn(x[:,0,:].size())
     x = x + torch.from_numpy(data_uncertainty) * torch.randn_like(x)
@@ -150,15 +146,15 @@ def noisy(theta, x ):
     return theta, x
    
 
-@job(array=1, cpus=2, gpus=1, ram='32GB', time='10-00:00:00')
+@job(array=1, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
 def train(i: int):
 
     config_dict = {
         
-                'embedding': 'CausalConv(1, 4, 32, 2, 32)', #'MAH_nopositional-512, 8, 8, 512',  #shallow = [2,3,5], deep = [3,5,7] ResMLP[2,3,5]
-                'embedding features' : 'in_channels, out_channels, MM, stride, kernel_size', 
-                'embedding_output_len' : '200', 
-                'NPE_input_len': '200' ,
+                'embedding': 'ResMLP[2,3,5] first quarter', # + CausalConv 12 layers' , #'CausalConv(1, 4, 32, 2, 32)', #'MAH_nopositional-512, 8, 8, 512',  #shallow = [2,3,5], deep = [3,5,7] ResMLP[2,3,5]
+                # 'embedding features' : 'in_channels, out_channels, MM, stride, kernel_size', 
+                'embedding_output_len' : '64', 
+                'NPE_input_len': '64' ,
                 'flow': 'NAF',
                 'transforms': 3, 
                 'hidden_features': 512, # hidden layers of the autoregression network
@@ -171,17 +167,18 @@ def train(i: int):
                 'patience': 32,
                 'epochs': 2000,
                 'stop_criterion': 'early', 
-                'batch_size': 16,
+                'batch_size': 32,
                 'gradient_steps_train': 1024, 
-                'gradient_steps_valid': 256
+                'gradient_steps_valid': 256, 
+                'noisy': '10'
              } 
 
     # Run
-    run = wandb.init(project='highres-CausalConv1D',  config = config_dict)
+    run = wandb.init(project='highres-ResMLP quarter norm',  config = config_dict) #+CausalConv
 
     # Data
-    trainset = H5Dataset(datapath / 'train.h5', batch_size=16, shuffle=True)
-    validset = H5Dataset(datapath / 'valid.h5', batch_size=16, shuffle=True)
+    trainset = H5Dataset(datapath / 'train.h5', batch_size=32, shuffle=True)
+    validset = H5Dataset(datapath / 'valid.h5', batch_size=32, shuffle=True)
 
     # Training
 #     process = Processing()
@@ -193,7 +190,7 @@ def train(i: int):
     scheduler = sched.ReduceLROnPlateau(
         optimizer,
         factor=0.5,
-        min_lr=1e-7,
+        min_lr=1e-6,
         patience=32,
         threshold=1e-2,
         threshold_mode='abs',
@@ -217,8 +214,8 @@ def train(i: int):
         start = time.time()
 
         losses = torch.stack([
-            step(pipe(theta, x[:,0])) #16,6144
-            for theta, x in islice(trainset, 1024)
+            step(pipe(theta, v[:,1, :1536])) #16,6144 3072, 1536
+            for theta, v in islice(trainset, 1024)
         ]).cpu().numpy()
         
 
@@ -227,8 +224,8 @@ def train(i: int):
 
         with torch.no_grad():
             losses_val = torch.stack([
-                pipe(theta, x[:,0])
-                for theta, x in islice(validset, 256)
+                pipe(theta, v[:,1, :1536])
+                for theta, v in islice(validset, 256)
             ]).cpu().numpy()
 
         run.log({

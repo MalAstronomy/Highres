@@ -53,11 +53,57 @@ class CausalConvLayers(nn.Module):
             CausalConv1d(in_channels=32, out_channels=out_channels, dilation=8, kernel_size=64, A=False, bias = True,  stride = 2), 
             nn.LeakyReLU(),  
             )
+        self.layers8 = nn.Sequential(
+                                    CausalConv1d(in_channels=1, out_channels=32, dilation= 1, kernel_size=64, A=True, bias = True, stride = 1), #
+                                    nn.LeakyReLU(), 
+                                    CausalConv1d(in_channels=32, out_channels=32, dilation= 2, kernel_size=64, A=False, bias = True, stride = 1), 
+                                    nn.LeakyReLU(), 
+                                    CausalConv1d(in_channels=32, out_channels=32, dilation= 2, kernel_size=64, A=False, bias = True, stride = 1), 
+                                    nn.LeakyReLU(), 
+                                    CausalConv1d(in_channels=32, out_channels=32, dilation= 4, kernel_size=64, A=False, bias = True,  stride = 1), 
+                                    nn.LeakyReLU(), 
+                                    CausalConv1d(in_channels=32, out_channels=32, dilation= 4, kernel_size=64, A=True, bias = True, stride = 1), #
+                                    nn.LeakyReLU(), 
+                                    CausalConv1d(in_channels=32, out_channels=32, dilation= 16, kernel_size=64, A=False, bias = True, stride = 1), 
+                                    nn.LeakyReLU(), 
+                                    CausalConv1d(in_channels=32, out_channels=32, dilation= 16, kernel_size=64, A=False, bias = True, stride = 1), 
+                                    nn.LeakyReLU(), 
+                                    CausalConv1d(in_channels=32, out_channels=1, dilation= 32, kernel_size=64, A=False, bias = True,  stride = 1), 
+                                    nn.LeakyReLU(),  
+                                    )  #1291
+        
+        self.layers12 = nn.Sequential(
+                                    CausalConv1d(in_channels=1, out_channels=32, dilation= 1, kernel_size=32, A=True, bias = True, stride = 1), #
+                                    nn.LeakyReLU(), 
+                                    CausalConv1d(in_channels=32, out_channels=32, dilation= 2, kernel_size=32, A=False, bias = True, stride = 1), 
+                                    nn.LeakyReLU(), 
+                                    CausalConv1d(in_channels=32, out_channels=32, dilation= 2, kernel_size=32, A=False, bias = True, stride = 1), 
+                                    nn.LeakyReLU(), 
+                                    CausalConv1d(in_channels=32, out_channels=32, dilation= 4, kernel_size=32, A=False, bias = True,  stride = 1), 
+                                    nn.LeakyReLU(), 
+                                    CausalConv1d(in_channels=32, out_channels=32, dilation= 4, kernel_size=32, A=True, bias = True, stride = 1), #
+                                    nn.LeakyReLU(), 
+                                    CausalConv1d(in_channels=32, out_channels=32, dilation= 8, kernel_size=32, A=False, bias = True, stride = 1), 
+                                    nn.LeakyReLU(), 
+                                    CausalConv1d(in_channels=32, out_channels=32, dilation= 8, kernel_size=32, A=False, bias = True, stride = 1), 
+                                    nn.LeakyReLU(), 
+                                    CausalConv1d(in_channels=32, out_channels=32, dilation= 16, kernel_size=32, A=False, bias = True,  stride = 1), 
+                                    nn.LeakyReLU(),     
+                                    CausalConv1d(in_channels=32, out_channels=32, dilation= 16, kernel_size=32, A=False, bias = True,  stride = 1), 
+                                    nn.LeakyReLU(),        
+                                    CausalConv1d(in_channels=32, out_channels=32, dilation= 32, kernel_size=32, A=False, bias = True, stride = 1), 
+                                    nn.LeakyReLU(), 
+                                    CausalConv1d(in_channels=32, out_channels=32, dilation= 32, kernel_size=32, A=False, bias = True,  stride = 1), 
+                                    nn.LeakyReLU(), 
+                                    CausalConv1d(in_channels=32, out_channels=1, dilation= 32, kernel_size=32, A=False, bias = True,  stride = 1), 
+                                    nn.LeakyReLU(), 
+
+                                    ) #1275
         self.flatten = nn.Flatten()
 
     def forward(self,x):
         # print(x.size())
-        x = self.layers(x.unsqueeze(1))
+        x = self.layers12(x.unsqueeze(1))
         x = self.flatten(x)
         return x
 
