@@ -20,16 +20,17 @@ from itertools import islice
 from pathlib import Path
 from torch import Tensor
 from tqdm import tqdm
+import pandas as pd
 
 from lampe.data import H5Dataset
 from lampe.inference import NPE, NPELoss
 from lampe.nn import ResMLP
 from lampe.utils import GDStep
 
-from zuko.flows import NAF, MAF
+from zuko.flows import NAF, MAF, NSF 
 from zuko.distributions import BoxUniform
-from generate import param_set
-from parameter import *
+# from generate import param_set
+# from parameter import *
 
 from DataProcuring import Data 
 from ProcessingSpec import ProcessSpec
@@ -45,11 +46,40 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 # from ees import Simulator, LOWER, UPPER
 # from Embedding.SelfAttention import SelfAttention
 # import Embedding.CNN as CNN
+from corner_modified import *
+# from pt_plotting import *
+import corner
 
 scratch = os.environ.get('SCRATCH', '')
 # scratch = '/users/ricolandman/Research_data/npe_crires/'
-datapath = Path(scratch) / 'highres-sbi/data_fulltheta_norm' #data_fulltheta
-savepath = Path(scratch) / 'highres-sbi/runs'
+datapath = Path(scratch) / 'highres-sbi/data_fulltheta' #, data_fulltheta_norm
+savepath = Path(scratch) / 'highres-sbi/runs/'
+
+LABELS, LOWER, UPPER = zip(*[
+[                  r'$FeH$',  -1.5, 1.5],   # temp_node_9
+[                  r'$CO$',  0.1, 1.6],  # CO_mol_scale
+[                  r'$\log g$',   2.5, 5.5],          # log g
+[                  r'$Tint$',  300,   3500],   # temp_node_5
+[                  r'$T1$',  300,   3500],      # T_bottom
+[                  r'$T2$',  300,   3500],   # temp_node_1
+[                  r'$T3$',  300,   3500],   # temp_node_2
+[                  r'$alpha$',  1.0, 2.0],   # temp_node_4
+[                  r'$log_delta$', 3.0, 8.0],   # temp_node_3
+[                  r'$log_Pquench$', -6.0, 3.0],   # temp_node_6
+[                  r'$logFe$',  -2.3, 1.0], # CH4_mol_scale
+[                  r'$fsed$',  0.0, 10.0],   # temp_node_8
+[                  r'$logKzz$',  5.0, 13.0], # H2O_mol_scale \_mol\_scale
+[                  r'$sigmalnorm$',  1.05, 3.0], # C2O_mol_scale
+[                  r'$log_iso_rat$',  -11.0, -1.0],   # temp_node_7
+[                  r'$R_P$', 0.8, 2.0],             # R_P / R_Jupyter
+[                  r'$rv$',  20.0, 35.0], # NH3_mol_scale
+[                  r'$vsini$',  10.0, 30.0], # H2S_mol_scale
+[                  r'$limb_dark$',  0.0, 1.0], # PH3_mol_scale
+])
+
+# FeH, CO, log_g, T_int, T1, T2, T3, alpha, log_delta, log_Pquench, Fe, fsed, Kzz, sigma_lnorm, iso_rat , 
+# radius, rv, vsini, limb_dark
+
 
 d = Data()
 
@@ -88,7 +118,7 @@ class NPEWithEmbedding(nn.Module):
             # CausalConvLayers(1, 4, 32, 2, 32),  #in_channels, out_channels, MM, stride, kernel_size
 
             ResMLP(
-                1536 , 64, hidden_features=[512] * 2 + [256] * 3 + [128] * 5,  #1291 #6144, 3072, 1536
+                6144 , 128, hidden_features=[512] * 3 + [256] * 5 + [128] * 7,  #1291 #6144, 3072, 1536
                 activation=nn.ELU,
             ),
 
@@ -96,24 +126,34 @@ class NPEWithEmbedding(nn.Module):
             )
         # self.flatten()
 
+        # this builds your transform
+        # self.npe = NPE(
+        #     19, 64, 
+        #     #moments=((l + u) / 2, (u - l) / 2),43q  r7890q q=-09875            transforms=3,
+        #     build=NAF,
+        #     hidden_features=[512] * 1,
+        #     activation=nn.ELU,
+        # )#.to(torch.float64)#
+
         self.npe = NPE(
-            19, 64, 
-            #moments=((l + u) / 2, (u - l) / 2),43q  r7890q q=-09875            transforms=3,
-            build=NAF,
+            19, self.embedding.out_features,
+            # moments=((l + u) / 2, (l - u) / 2),
+            transforms=5,
+            build=NSF,
+            bins=16,
             hidden_features=[512] * 5,
-            activation=nn.ELU,
-            # dropout = 0.2,
-        ).to(torch.float64)
+            activation= nn.ELU,
+        )
         
 
     def forward(self, theta: Tensor, x: Tensor) -> Tensor:
         y = self.embedding(x)
         if torch.isnan(y).sum()>0:
              print('NaNs in embedding')
-        return self.npe(theta.to(torch.double), y)
+        return self.npe(theta, y)
 
     def flow(self, x: Tensor):  # -> Distribution
-        out = self.npe.flow(self.embedding(x).to(torch.double)) 
+        out = self.npe.flow(self.embedding(x)) #.to(torch.double)) #
         if np.any(np.isnan(out.detach().cpu().numpy())):
              print('NaNs in flow')
         return out
@@ -136,96 +176,100 @@ class BNPELoss(nn.Module):
         return l0 + self.lmbda * lb
                     
                     
-def noisy(theta, x ):
-    data_uncertainty = Data().err[:1536] * Data().flux_scaling*10
-    # data_uncertainty = Data().err /250
-    # x[:,0, :] = x[:,0, :] + torch.from_numpy(data_uncertainty) * torch.randn(x[:,0,:].size())
+def noisy(x):
+    data_uncertainty = Data().err[:1536] * Data().flux_scaling*50 #this is 10% of the median of the means of spectra in the training set.
     x = x + torch.from_numpy(data_uncertainty) * torch.randn_like(x)
-    # theta = theta.numpy()
-    # print(theta.size(), x.size())
-    return theta, x
+    return x
+
+def rolling(a, roll=-2, axis = -1):
+    return np.roll(a, roll, axis)
+
+def pipeout(theta: Tensor, x: Tensor) -> Tensor:
+        x = noisy(x)
+        theta, x = theta.cuda(), x.cuda()
+        return theta, x
    
 
-@job(array=1, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
+@job(array=3, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
 def train(i: int):
 
     config_dict = {
         
-                'embedding': 'ResMLP[2,3,5] first quarter', # + CausalConv 12 layers' , #'CausalConv(1, 4, 32, 2, 32)', #'MAH_nopositional-512, 8, 8, 512',  #shallow = [2,3,5], deep = [3,5,7] ResMLP[2,3,5]
-                # 'embedding features' : 'in_channels, out_channels, MM, stride, kernel_size', 
-                'embedding_output_len' : '64', 
-                'NPE_input_len': '64' ,
-                'flow': 'NAF',
-                'transforms': 3, 
+                'embedding': 'deep', # + CausalConv 12 layers' , #'CausalConv(1, 4, 32, 2, 32)', #'MAH_nopositional-512, 8, 8, 512',  #shallow = [2,3,5], deep = [3,5,7] ResMLP[2,3,5]
+                'flow': 'NSF',
+                'transforms': 5, 
                 'hidden_features': 512, # hidden layers of the autoregression network
                 'activation': 'ELU',
                 'optimizer': 'AdamW',
-                'init_lr': 1e-3,
-                'weight_decay': 1e-2,
+                'init_lr': 5e-4,
+                'weight_decay': 1e-4,
                 'scheduler': 'ReduceLROnPlateau',
-                'min_lr': 1e-6,
-                'patience': 32,
+                'min_lr': 1e-5,
+                'patience': 16,
                 'epochs': 2000,
                 'stop_criterion': 'early', 
-                'batch_size': 32,
-                'gradient_steps_train': 1024, 
-                'gradient_steps_valid': 256, 
-                'noisy': '10'
+                'batch_size': 1024,
+                'gradient_steps_train': 2**8, #770, 
+                'gradient_steps_valid': 2**5, #90, 
+                'noisy': 'err*scaling*50',
              } 
 
     # Run
-    run = wandb.init(project='highres-ResMLP quarter norm',  config = config_dict) #+CausalConv
+    run = wandb.init(project='highres',  config = config_dict) #+CausalConv
 
     # Data
-    trainset = H5Dataset(datapath / 'train.h5', batch_size=32, shuffle=True)
-    validset = H5Dataset(datapath / 'valid.h5', batch_size=32, shuffle=True)
+    trainset = H5Dataset(datapath / 'train.h5', batch_size=1024, shuffle=True)
+    validset = H5Dataset(datapath / 'valid.h5', batch_size=1024, shuffle=True)
 
     # Training
 #     process = Processing()
+    
     estimator = NPEWithEmbedding().double().cuda()
-    prior = BoxUniform(torch.tensor(param_set.lower).cuda(), torch.tensor(param_set.upper).cuda())
+
+    # prior = BoxUniform(torch.tensor(param_set.lower).cuda(), torch.tensor(param_set.upper).cuda())
     loss = NPELoss(estimator)
-    optimizer = optim.AdamW(estimator.parameters(), lr=1e-4, weight_decay=1e-2)
+    optimizer = optim.AdamW(estimator.parameters(), lr=5e-4, weight_decay=1e-4)
     step = GDStep(optimizer, clip=1.0)
     scheduler = sched.ReduceLROnPlateau(
         optimizer,
         factor=0.5,
-        min_lr=1e-6,
-        patience=32,
+        min_lr=1e-5,
+        patience=16,
         threshold=1e-2,
         threshold_mode='abs',
     )
 
     def pipe(theta: Tensor, x: Tensor) -> Tensor:
-        theta, x = noisy(theta,x)
-        # v = torch.stack([torch.from_numpy(np.asarray(GISIC.normalize(d.data_wavelengths_norm, x[i].numpy(), sigma=30))) for i in range(len(x))]) #B, 3, 6144 , wavelengths, flux, continuum
-        # theta, x = theta.cuda(), v[:,1,:].cuda()
-
-        # theta, x = torch.from_numpy(theta).cuda(), torch.from_numpy(x).cuda()
-        # x = torch.hstack((x[:, 0, :], x[:,1,:]))
-        # print(x.size())
-        # x = torch.permute(x, (0, 2, 1))
-        
+        x = noisy(x)        
         theta, x = theta.cuda(), x.cuda()
-        return loss(theta, x)
 
-    for epoch in tqdm(range(2001), unit='epoch'):
+        # if ~loss(theta, x).isfinite():
+        #     for i in range(len(x)):  #1024
+        #         log_p = estimator(theta[i],x[i])
+        #         if ~log_p.isfinite():
+        #             plt.plot(x[i].cpu())
+        #             plt.savefig('/home/mvasist/Highres/plots_/plot_'+ str(i)+'.png')
+        #             np.savetxt('/home/mvasist/Highres/plots_/plot_'+str(i)+ '.csv', x[i].cpu())
+
+        return loss(theta, x.cuda())
+
+    for epoch in tqdm(range(200), unit='epoch'):
         estimator.train()
         start = time.time()
 
         losses = torch.stack([
-            step(pipe(theta, v[:,1, :1536])) #16,6144 3072, 1536
-            for theta, v in islice(trainset, 1024)
+            step(pipe(theta.float(), x[:,:1536].float())) #16,6144 3072, 1536 v[:,1, :1536])
+            for theta, x in islice(trainset, 20) #770 20
         ]).cpu().numpy()
-        
+
 
         end = time.time()
         estimator.eval()
 
         with torch.no_grad():
             losses_val = torch.stack([
-                pipe(theta, v[:,1, :1536])
-                for theta, v in islice(validset, 256)
+                pipe(theta.float(), x[:,:1536].float())
+                for theta, x in islice(validset, 9) #90 9
             ]).cpu().numpy()
 
         run.log({
@@ -242,6 +286,9 @@ def train(i: int):
         runpath = savepath / run.name
         runpath.mkdir(parents=True, exist_ok=True)
 
+        # if torch.isnan(np.mean(losses)):
+        #     break
+
         if epoch % 50 ==0 : 
                 torch.save({
                 'estimator': estimator.state_dict(),
@@ -252,6 +299,347 @@ def train(i: int):
             break
 
     run.finish()
+
+    # runpath = savepath / 'proud-sound-8_bq4trnj0' #'revived-snow-36_rptxx8d0' #'ruby-energy-41_xzxzcc6t'  #dainty-paper-3 morning-silence-4 easy-sun-6
+    # runpath.mkdir(parents=True, exist_ok=True)
+    # epoch = 1024
+
+    plot = plots(runpath, int(epoch/50) * 50) ########********
+    # plot = plots(runpath, int(epoch))
+    plot.coverage()
+    plot.cornerplot()
+    # plot.ptprofile()
+    # plot.consistencyplot()
+    # plot.cornerWratio()
+
+
+class plots(): 
+
+    def __init__(self, runpath, ep):
+        self.runpath = runpath
+        self.ep = ep
+
+        self.savepath_plots = self.runpath  / ('plots_' + str(ep))
+        self.savepath_plots.mkdir(parents=True, exist_ok=True)
+
+        ########********
+        self.estimator = NPEWithEmbedding().double() 
+        states = torch.load(self.runpath / ('states_' + str(ep) + '.pth'), map_location='cpu')
+        self.estimator.load_state_dict(states['estimator'])
+        self.estimator.cuda().eval()
+
+        # states = torch.load(runpath / 'weights.pth', map_location='cpu')
+        # # self.embedding = ResMLP(1536, 128, hidden_features=[512] * 3 + [256] * 5 + [128] * 7, activation= nn.ELU)
+        # self.embedding = ResMLP(1536, 64, hidden_features=[512] * 2 + [256] * 3 + [128] * 5, activation= nn.ELU)
+
+        # self.estimator = NPE(
+        #     19, self.embedding.out_features,
+        #     # moments=((l + u) / 2, (l - u) / 2),
+        #     transforms= 5,
+        #     build=NSF,
+        #     bins=16,
+        #     hidden_features=[512] * 5,
+        #     activation=nn.ELU,
+        # )
+        # self.embedding.load_state_dict(states['embedding'])
+        # self.estimator.load_state_dict(states['estimator'])
+        # self.embedding.double().cuda().eval()
+        # self.estimator.double().cuda().eval()
+
+        self.x_star =  d.flux*d.flux_scaling
+
+
+        # self.theta_star = np.array([1.8281200097266526,  3.27738747e+00,  3.04519050e+03,  6.19863555e-01,
+        #                         3.02635242e-01,  8.30375000e-01,  5.16561121e-01,  9.81491612e-01,
+        #                         2.01244637e-01,  9.97427008e-01,  4.69196605e-01,  4.80819158e-01,
+        #                         -2.24910475e+00, -9.28358797e+00, -5.68783505e+00, -3.04810332e+00,
+        #                         -4.20770164e+00, -6.60616189e+00, -8.28894535e+00, -5.05687608e+00,
+        #                         -6.99132061e+00, -5.75847936e+00])
+        # self.theta_paul = torch.load('/home/mvasist/WISEJ1828/WISEJ1828/5_unregPT/posterior_unregPT_b_24Apr2023.pth')
+
+    def sampling_from_post(self, x, name, only_returning = True):
+        
+            if not only_returning: 
+                with torch.no_grad():
+                    #######*******
+                    theta = torch.cat([ 
+                        self.estimator.flow(x.cuda()).sample((2**14,)).cpu()
+                        for _ in tqdm(range(2**6))
+                    ])
+                    # theta = torch.cat([
+                    #     self.estimator.flow(self.embedding(x).cuda()).sample((2**14,)).cpu()
+                    #     for _ in tqdm(range(2**6))
+                    # ])
+
+                    
+                ##Saving to file
+                theta_numpy = theta.double().numpy() #convert to Numpy array
+                df_theta = pd.DataFrame(theta_numpy) #convert to a dataframe
+                df_theta.to_csv( name ,index=False) #save to file
+                return theta
+            
+            #Then, to reload:
+            df_theta = pd.read_csv(name)
+            theta = df_theta.values
+            return torch.from_numpy(theta)
+
+
+    def coverage(self): 
+        ####### Coverage 
+        testset = H5Dataset(datapath / 'test.h5', batch_size=16)
+
+        ranks = []
+
+        with torch.no_grad():
+            for theta, x in tqdm(islice(testset, 128)):
+                x = noisy(x[:, 0, :1536])
+                theta, x = theta.cuda(), x.cuda()        
+                x = self.embedding(x).cuda()
+                posterior = self.estimator.flow(x)
+                samples = posterior.sample((1024,))
+                log_p = posterior.log_prob(theta)
+                log_p_samples = posterior.log_prob(samples)
+
+                ranks.append((log_p_samples < log_p).float().mean(dim=0).cpu())
+
+        ranks = torch.cat(ranks)   
+        ranks_numpy = ranks.double().numpy() #convert to Numpy array
+        df_ranks = pd.DataFrame(ranks_numpy) #convert to a dataframe
+        df_ranks.to_csv(self.savepath_plots /"ranks.csv",index=False) #save to file
+
+        df_ranks = pd.read_csv(self.savepath_plots/"ranks.csv")
+        ranks = df_ranks.values
+
+        # Coverage
+        a=[]
+        r = np.sort(np.asarray(ranks))
+
+        for alpha in np.linspace(0,1,100):
+            a.append((r > (1-alpha)).mean())
+
+        plt.figure(figsize=(4, 4))
+        plt.xlabel(r'Credibility level $1-\alpha$', fontsize = 10)
+        plt.ylabel(r'Coverage probability', fontsize= 10)
+        plt.plot(np.linspace(0,1,100),a, color='steelblue', label='upper right') #a[::-1]
+        plt.plot([0, 1], [0, 1], color='k', linestyle='--')
+        # plt.grid()
+        plt.xticks(fontsize=8)
+        plt.yticks(fontsize=8)
+        plt.savefig(self.savepath_plots / 'coverage.pdf')    
+
+###############################################################################################################
+    def cornerplot(self):
+    #### Corner plot
+        
+        self.theta = self.sampling_from_post(torch.from_numpy(self.x_star).cuda(), self.savepath_plots/'theta.csv', only_returning = False) #.float()
+
+        self.theta = torch.Tensor(LOWER) + self.theta * (torch.Tensor(UPPER) - torch.Tensor(LOWER))
+
+        #######********
+        # labels = rolling(LABELS)
+        # lower = rolling(LOWER)
+        # upper = rolling(UPPER)
+        # theta_rolled = rolling(self.theta)
+        #######********
+
+        # theta_star_rolled = rolling(self.theta_star)
+        # theta_paul_rolled = rolling(self.theta_paul)
+
+        # fig = corner_mod(theta= [theta_rolled[:20469,10:], theta_paul_rolled[:,10:]], legend=['NPE', 'MultiNest'], \
+        #             color= ['steelblue', 'orange'] , figsize=(12,12), \
+        #         domain = (lower[10:], upper[10:]), labels= labels[10:])
+        
+        # # mark_point(fig, theta_star_rolled[10:], color='black')
+        # fig.savefig(self.savepath_plots / 'corner_Paul_unregPTwithb_24Apr2023.pdf')
+
+        #######********
+#         fig = corner_mod(theta= [theta_rolled[:20469,10:]], legend=['NPE'], \
+#                     color= ['steelblue'] , figsize=(13,13), \
+#                 domain = (lower[10:], upper[10:]), labels= labels[10:])
+#         fig.savefig(self.savepath_plots / 'corner_HST.pdf')
+
+#         import corner
+#         figure = corner.corner(theta_rolled[:100000,10:],
+# #                         hist_bin_factor = 10,
+#                         labels= labels[10:],
+#                         range = [(lower[i+10], upper[i+10]) for i in range(len(theta_rolled[0])-10)],
+# #                         quantiles=[0.16, 0.5, 0.84],
+#                         show_titles=True,
+#                         title_kwargs={"fontsize": 12},
+#         )
+
+#         # mark_point(fig, theta_star_rolled[10:], color='black')
+#         figure.savefig(self.savepath_plots / 'corner_HSTcorner.pdf')
+
+        #######********
+
+        fig = corner_mod([self.theta], legend=['NPE'], \
+                    color= ['steelblue'] , figsize=(19,19), \
+                domain = (LOWER, UPPER), labels= LABELS)
+        fig.savefig(self.savepath_plots / 'corner_HST.pdf')
+
+        import corner
+        figure = corner.corner(self.theta[:100000].numpy(),
+#                         hist_bin_factor = 10,
+                        labels= LABELS,
+                        range = [(LOWER, UPPER) for i in range(len(self.theta[0]))],
+#                         quantiles=[0.16, 0.5, 0.84],
+                        show_titles=True,
+                        title_kwargs={"fontsize": 12},
+        )
+        figure.savefig(self.savepath_plots / 'corner_HSTcorner.pdf')
+
+###############################################################################################################
+    def ptprofile(self):
+    # PT profile
+        # pt_paul=pd.read_csv('/home/mvasist/WISEJ1828/WISEJ1828/4/best_fit_PT.dat',sep=" ",header=0)
+        fig, ax = plt.subplots(figsize=(4,4))
+
+        # ax.plot(pt_paul.iloc[:,1].values, pt_paul.iloc[:,0].values, color = 'orange')
+        fig_pt = PT_plot(fig, ax, self.theta[:2**8], invert = True) #, self.theta_star)
+        # fig_pt = PT_plot(fig_pt, ax, self.theta_paul[:2**8], invert = True, color = 'orange') #, theta_star)
+        # fig_pt.savefig(self.savepath_plots / 'pt_profile_Paul_unregPTwithb_24Apr2023.pdf')
+        fig_pt.savefig(self.savepath_plots / 'pt_profile.pdf')
+
+###############################################################################################################
+    def consistencyplot(self):
+    ## Consistency check
+
+        def sim_spectra(theta, theta_name, x_name, only_returning = True, noisy = True):
+            if not only_returning:
+                x = np.stack([simulator(t) for t in tqdm(theta)])
+                mask = ~np.isnan(x).any(axis=-1)
+                mask1 = ~np.isinf(x[mask]).any(axis=-1)
+                theta, x = theta[mask][mask1], x[mask][mask1]
+                x = torch.from_numpy(x)
+                x = x[:,87:1385]
+
+                if noisy :
+                    x = noisybfactor(x)
+
+                ## to save
+                df_theta = pd.DataFrame(theta) #convert to a dataframe
+                df_x = pd.DataFrame(x) #convert to a dataframe
+
+                df_theta.to_csv(theta_name,index=False) #save to file
+                df_x.to_csv(x_name,index=False) #save to file
+
+            #Then, to reload:
+            df_theta = pd.read_csv(theta_name)
+            theta = df_theta.values
+            df_x = pd.read_csv(x_name)
+            x = df_x.values
+            return torch.from_numpy(theta), torch.from_numpy(x)
+
+        theta_256_noisy, x_256_noisy = sim_spectra(self.theta[:2**9], self.savepath_plots /"theta_256_noisy.csv", self.savepath_plots /"x_256_noisy.csv", only_returning = False, noisy = True)
+        theta_256, x_256 = sim_spectra(self.theta[:2**9], self.savepath_plots /"theta_256.csv", self.savepath_plots /"x_256.csv", only_returning = False, noisy = False)
+
+
+        fig, (ax1, ax2) = plt.subplots(2, figsize=(10,7), gridspec_kw={'height_ratios': [3, 1]})
+        # cc = ['lightsteelblue', 'dodgerblue', 'midnightblue']
+
+        creds= [0.997, 0.955, 0.683]
+        alpha = (0.0, 0.9)
+        levels, creds = levels_and_creds(creds= creds, alpha = alpha)
+        cmap= LinearAlphaColormap('steelblue', levels=creds, alpha=alpha)
+
+        for q, l in zip(creds[:-1], levels):
+        #     cls = tuple(mcolors.to_rgba(mcolors.CSS4_COLORS[cc[i]])[:3])
+            lower, upper = np.quantile(x_256.numpy(), [0.5 - q / 2, 0.5 + q / 2], axis=0)
+            ax1.fill_between(self.wlength, lower, upper, color= cmap(l), linewidth=0) #'C0', alpha=0.4,
+
+        lines = ax1.plot(self.wlength, self.x_star, color='black', label = r'$ f(\theta_{obs})$', linewidth = 0.4)
+
+        handles, texts = legends(axes= ax1, alpha=alpha) #0.15, 0.75
+
+        texts = [r'$ f(\theta_{obs})$', r'$p_{\phi}(f(\theta)|x_{obs})$']
+
+        plt.setp(ax1.get_xticklabels(), visible=False)
+        # ax1.set_yticklabels(np.round(np.arange(0, 4.0, 0.4),1), fontsize=8)
+        # ax1.set_ylabel(r'Planet flux $F_\nu$ (10$^{-16}$ W m$^{-2}$ $\mu$m$^{-1}$)', fontsize = 10)
+        ax1.set_ylabel(r'Planet flux $F_\nu$ (10$^{-5}$) Jy', fontsize = 10)
+
+        # ax1.set_ylim(-0.5,3.8)
+        ax1.legend(handles, texts, prop = {'size': 8}, bbox_to_anchor=(1,1))
+        # ax1.grid()
+
+        residuals = (x_256 - self.x_star) / (simulator.sigma * simulator.scale)
+
+        for q, l in zip(creds[:-1], levels):
+            #     cls = tuple(mcolors.to_rgba(mcolors.CSS4_COLORS[cc[i]])[:3])
+            lower, upper = np.quantile(residuals, [0.5 - q / 2, 0.5 + q / 2], axis=0)
+            ax2.fill_between(self.wlength, lower, upper, color= cmap(l) , linewidth=0) #'C0', alpha=0.4
+        # ax2.set_ylabel(r'$p(\epsilon | x_{obs})$', fontsize = 10)
+        ax2.set_ylabel(r'Residuals', fontsize = 10)
+        ax2.set_xlabel( r'Wavelength ($\mu$m)', fontsize = 10)
+        # ax2.set_ylim(-5,5)
+        # ax2.set_xticklabels(np.round(np.arange(0.8, 2.6, 0.2),1),fontsize=8) 
+        # ax2.grid()
+        fig.savefig(self.savepath_plots / 'consistency.pdf')
+###############################################################################################################
+
+## corner with 14/15 NH3
+    def cornerWratio(self):
+
+        self.theta = self.sampling_from_post(torch.from_numpy(self.x_star).cuda(), self.savepath_plots/'theta.csv', only_returning = True) #.float()
+        
+        def ratio(theta):
+            N14 = 10**theta[:,16]
+            N15 = 10**theta[:,19]
+            # N14 = 10**theta[:,16]
+            # N15 = 10**theta[:,20]
+            # ratio = (mass_to_number(N14))/ (mass_to_number(N15))
+            ratio = (N14*18.02)/ (N15*17.027)
+            return ratio
+    
+        def ratio_append():
+            # print(ratio(theta).size(), torch.unsqueeze(ratio(theta), -1).size(), theta.size())
+            thetar = torch.cat((self.theta,torch.unsqueeze(ratio(self.theta), -1)), -1)
+            # theta_paulr = torch.cat((self.theta_paul,torch.unsqueeze(ratio(self.theta_paul), -1)), -1)
+            labelsr = LABELS + (r'$14N/15N$',)
+            lowerr = LOWER + (0,)
+            upperr = UPPER + (1000,)
+            return thetar, labelsr, lowerr, upperr #, theta_paulr
+
+        thetar, labelsr, lowerr, upperr = ratio_append() #, theta_paulr 
+        
+        labelsrr = rolling(labelsr)
+        lowerrr = rolling(lowerr)
+        upperrr = rolling(upperr)
+        thetar_rolled = rolling(thetar)
+        # print(np.shape(thetar_rolled))
+        # print(thetar_rolled[0],self.theta[0][16], self.theta[0][19] )
+        # theta_star_rolled = rolling(theta_star)
+        # theta_paulr_rolled = rolling(theta_paulr)
+
+        # fig = corner_mod(theta= [thetar_rolled[:20469,10:], theta_paulr_rolled[:,10:]], legend=['NPE', 'MultiNest'], \
+        #             color= ['steelblue', 'orange'] , figsize=(12,12), \
+        #         domain = (lowerrr[10:], upperrr[10:]), labels= labelsrr[10:])
+        
+        # # mark_point(fig, theta_star_rolled[10:], color='black')
+        # fig.savefig(self.savepath_plots / 'corner_withRatio_Paul_unregPT_b_24Apr2023.pdf')
+
+        fig = corner_mod(theta= [thetar_rolled[:20469,10:]], legend=['NPE'], \
+                    color= ['steelblue'] , figsize=(14,14), \
+                domain = (lowerrr[10:], upperrr[10:]), labels= labelsrr[10:])
+        
+        # # mark_point(fig, theta_star_rolled[10:], color='black')
+        fig.savefig(self.savepath_plots / 'corner_withRatio.pdf')
+
+        import corner
+        figure = corner.corner(thetar_rolled[:10000,10:],
+#                         hist_bin_factor = 10,
+                        labels= labelsrr[10:],
+                        range = [(lowerrr[i+10], upperrr[i+10]) for i in range(len(thetar_rolled[0])-10)],
+#                         quantiles=[0.16, 0.5, 0.84],
+                        show_titles=True,
+                        title_kwargs={"fontsize": 12},
+                    )
+        
+        # mark_point(fig, theta_star_rolled[10:], color='black')
+        figure.savefig(self.savepath_plots / 'corner_HSTcorner_withRatio.pdf')
+        # plt.show()
+        # plt.close()
 
 
 # train()

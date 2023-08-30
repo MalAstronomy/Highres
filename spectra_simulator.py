@@ -1,14 +1,18 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import os
-from specutil import *
+from specutils import *
 from scipy.interpolate import CubicSpline
+os.environ['pRT_input_data_path'] = os.path.join('/home/mvasist/pRT/input_data_v2.4.9/input_data')
 from petitRADTRANS import Radtrans
 from petitRADTRANS.poor_mans_nonequ_chem import interpol_abundances
 from PyAstronomy.pyasl import fastRotBroad
 from cloud_cond import return_cloud_mass_fraction, simple_cdf_MgSiO3, simple_cdf_Fe
 from PyAstronomy.pyasl import fastRotBroad
 from petitRADTRANS.physics import PT_ret_model
+import astropy.units as u
+import astropy.constants as const
+
 
 def abundances(press, temp, feh, C_O, P_quench=None):
     COs = np.ones_like(press)*C_O

@@ -11,11 +11,11 @@ from pathlib import Path
 from typing import *
 
 from lampe.data import JointLoader, H5Dataset
-#from lampe.distributions import BoxUniform
+from zuko.distributions import BoxUniform
 
-#from ees import Simulator, LOWER, UPPER
+from train_new import LOWER, UPPER
 from parameter import *
-# from spectra_simulator import *
+from spectra_simulator import SpectrumMaker 
 
 from ProcessingSpec import ProcessSpec
 from DataProcuring import Data
@@ -75,6 +75,8 @@ species = ['CO_main_iso', 'H2O_main_iso']
 if with_isotope:
     species += ['CO_36']
 
+# FeH, CO, log_g, T_int, T1, T2, T3, alpha, log_delta, log_Pquench, Fe, fsed, Kzz, sigma_lnorm, iso_rat , 
+# radius, rv, vsini, limb_dark
 
 scratch = os.environ.get('SCRATCH', '')
 path = Path(scratch) / 'highres-sbi/data'
@@ -83,27 +85,26 @@ path_norm = Path(scratch) / 'highres-sbi/data_fulltheta_norm'
 path_norm.mkdir(parents=True, exist_ok=True)
 
 # @ensure(lambda i: (path_full / f'samples_{i:06d}.h5').exists())
-# @job(array=3, cpus=1, ram='64GB', time='10-00:00:00')
-@job(array=200, cpus=1, ram='64GB', time='10-00:00:00')
+@job(array=1, cpus=1, ram='64GB', time='10-00:00:00')
 def simulate(i: int):
-    #prior = BoxUniform(torch.tensor(LOWER), torch.tensor(UPPER))
-    #simulator = Simulator(noisy=False)
-    # sim_res = 2e5
-    # dlam = 2.350/sim_res
-    # wavelengths = np.arange(2.320, 2.371, dlam)
-    # simulator = SpectrumMaker(wavelengths=wavelengths, param_set=param_set, lbl_opacity_sampling=2)
-    # loader = JointLoader(param_set, simulator, batch_size=16, numpy=False)
+    # prior = BoxUniform(torch.tensor(LOWER), torch.tensor(UPPER))
+    # simulator = Simulator(noisy=False)
+    sim_res = 2e5
+    dlam = 2.350/sim_res
+    wavelengths = np.arange(2.320, 2.371, dlam)
+    simulator = SpectrumMaker(wavelengths=wavelengths, param_set=param_set, lbl_opacity_sampling=2)
+    loader = JointLoader(param_set, simulator, batch_size=16, numpy=False)
 
-    # def filter_nan(theta, x):
-    #     mask = torch.any(torch.isnan(x), dim=-1)
-    #     mask += torch.any(~torch.isfinite(x), dim=-1)
-    #     return theta[~mask], x[~mask]
+    def filter_nan(theta, x):
+        mask = torch.any(torch.isnan(x), dim=-1)
+        mask += torch.any(~torch.isfinite(x), dim=-1)
+        return theta[~mask], x[~mask]
 
-    # H5Dataset.store(
-    #     starmap(filter_nan, loader),
-    #     path / f'samples_{i:06d}.h5',
-    #     size=32,
-    # )
+    H5Dataset.store(
+        starmap(filter_nan, loader),
+        path / f'samples_{i:06d}.h5',
+        size=32,
+    )
 
     ######################################################################################################
     #  generating dataset with full theta (this code is not tested)
@@ -131,45 +132,42 @@ def simulate(i: int):
     #   generating dataset with normalized fluxes using GISIC
     # @job(array=3, cpus=1, ram='64GB', time='10-00:00:00')
 
-    warnings.simplefilter(action='ignore', category=FutureWarning)
+    # warnings.simplefilter(action='ignore', category=FutureWarning)
 
-    # file = 'train.h5'
-    loader = H5Dataset(path_full/ f'samples_{i:06d}.h5', batch_size=32)
-    # loader = H5Dataset(path_full/ file, batch_size=32)
+    # # file = 'train.h5'
+    # loader = H5Dataset(path_full/ f'samples_{i:06d}.h5', batch_size=32)
+    # # loader = H5Dataset(path_full/ file, batch_size=32)
 
-    def filter_nan(theta, x):
-        mask = torch.any(torch.isnan(x), dim=-1)
-        mask1 = torch.any(~torch.isfinite(x[mask]), dim=-1)
-        return theta[mask][mask1], x[mask][mask1]
+    # def filter_nan(theta, x):
+    #     mask = torch.any(torch.isnan(x), dim=-1)
+    #     mask1 = torch.any(~torch.isfinite(x[mask]), dim=-1)
+    #     return theta[mask][mask1], x[mask][mask1]
     
     
-    def noisy(theta, x ):
-        data_uncertainty = Data().err * Data().flux_scaling * 10 
-        x = x + torch.from_numpy(data_uncertainty) * torch.randn_like(x)
-        return theta, x
+    # def noisy(theta, x ):
+    #     data_uncertainty = Data().err * Data().flux_scaling * 10 
+    #     x = x + torch.from_numpy(data_uncertainty) * torch.randn_like(x)
+    #     return theta, x
 
-    def normalizing(theta,x):
-        # theta, x = noisy(theta,x[:,0,:])
-        # v = torch.stack([torch.from_numpy(np.asarray(GISIC.normalize(Data().data_wavelengths_norm, x[i].numpy(), sigma=30))) for i in range(len(x))]) #B, 3, 6144 , wavelengths, flux, continuum
-        v = torch.stack([torch.from_numpy(np.array(GISIC.normalize(Data().data_wavelengths_norm, x[i, 0, :].numpy(), sigma=20))) for i in range(len(x))])
-        wave, norm_flux, continuum =  v[:, 0, :], v[:, 1, :], v[:, 2, :]
-        theta_new, x_new = theta, v
-        # theta_new, x_new = filter_nan(theta, x_new)
-        # theta_new, x_new = filter_nan(theta_new, x_new)
-        return theta_new, x_new
+    # def normalizing(theta,x):
+    #     # theta, x = noisy(theta,x[:,0,:])
+    #     # v = torch.stack([torch.from_numpy(np.asarray(GISIC.normalize(Data().data_wavelengths_norm, x[i].numpy(), sigma=30))) for i in range(len(x))]) #B, 3, 6144 , wavelengths, flux, continuum
+    #     v = torch.stack([torch.from_numpy(np.array(GISIC.normalize(Data().data_wavelengths_norm, x[i, 0, :].numpy(), sigma=20))) for i in range(len(x))])
+    #     wave, norm_flux, continuum =  v[:, 0, :], v[:, 1, :], v[:, 2, :]
+    #     theta_new, x_new = theta, v
+    #     # theta_new, x_new = filter_nan(theta, x_new)
+    #     # theta_new, x_new = filter_nan(theta_new, x_new)
+    #     return theta_new, x_new
 
         
-    H5Dataset.store(
-        starmap(normalizing, loader),
-        path_norm / f'samples_{i:06d}.h5',
-        # path_norm / file[i],
-        size= len(loader),
-    )
+    # H5Dataset.store(
+    #     starmap(normalizing, loader),
+    #     path_norm / f'samples_{i:06d}.h5',
+    #     # path_norm / file[i],
+    #     size= len(loader),
+    # )
 
-
-    # ######################################################################################################
-
-
+#######################################################################################################
 
 #@after(simulate)
 @job(array=26111, cpus=1, ram='32GB', time='01:00:00')
@@ -190,16 +188,16 @@ def revaggregate(i: int):
 
 @job(cpus=1, ram='4GB', time='01:00:00')
 def aggregate():
-    files = list(path.glob('samples_*.h5'))
+    files = list(path_norm.glob('samples_*.h5'))
     length = len(files)
     print('Length:', length)
 
     i = int(0.8 * length)
     j = int(0.9 * length)
     splits = {
-        'train': files[:i],
-        'valid': files[i:j],
-        'test': files[j:],
+        'train_sigma20': files[:i],
+        'valid_sigma20': files[i:j],
+        'test_sigma20': files[j:],
     }
 
     for name, files in splits.items():
@@ -213,6 +211,27 @@ def aggregate():
             size=len(dataset),
         )
 
+@job(cpus=1, ram='64GB', time='01:00:00')
+def aggregate_new():
+    files = ['train', 'valid', 'test']
+
+    def filter_largeAsmall(theta, x):
+        x = x[:,0]
+        mask = (x.mean(dim=-1) < 170) & (x.mean(dim=-1) > 0)
+        mask1 = ((x[mask]>0).sum(dim = -1)) == 6144
+        return theta[mask][mask1], x[mask][mask1]
+    
+        # mask1 = x[mask].var(dim=-1) <1000
+        # return theta[mask][mask1], x[mask][mask1]
+
+    for name in files:
+        dataset = H5Dataset(path_full/ (name + '.h5'), batch_size=2048)
+
+        H5Dataset.store(
+            starmap(filter_largeAsmall, dataset),
+            path_full / f'{name}_lessthan170_allpositive.h5',
+            size=len(dataset),
+        )
 
 #@ensure(lambda: (path / 'event.h5').exists())
 #@job(cpus=1, ram='4GB', time='05:00')
@@ -250,7 +269,7 @@ if __name__ == '__main__':
     #aggregate()
 
     schedule(
-        simulate, #simulate, # event, revaggregate
+        aggregate_new, #simulate, # event, revaggregate
         name='Data generation',
         backend='slurm',
         prune=True,
