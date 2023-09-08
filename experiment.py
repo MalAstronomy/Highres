@@ -24,7 +24,7 @@ from lampe.data import H5Dataset
 from zuko.distributions import BoxUniform
 from lampe.inference import NPE, NPELoss
 from lampe.nn import ResMLP
-from zuko.flows import NAF, NSF
+from zuko.flows import NAF, NSF, MAF, NCSF, SOSPF, UNAF, CNF 
 from lampe.plots import nice_rc, corner, coverage_plot
 from lampe.utils import GDStep
 
@@ -60,30 +60,35 @@ LABELS, LOWER, UPPER = zip(*[
 
 scratch = os.environ['SCRATCH']
 datapath = Path(scratch) / 'highres-sbi/data_fulltheta'
-savepath = Path(scratch) / 'highres-sbi/runs/sweep_more'
+savepath = Path(scratch) / 'highres-sbi/runs/sweep_moree'
 
 
 CONFIGS = {
     'embedding': ['shallow', 'deep'],
-    'flow': ['NSF'], #'NAF', 
-    'transforms': [5], #3, 
-    'signal': [16],  # not important- the autoregression network output , 32
-    'hidden_features': [512], # hidden layers of the autoregression network , 256, 
-    'activation': [nn.ELU],
+    'flow': ['MAF', 'NCSF', 'SOSPF', 'UNAF', 'CNF'], #'NAF', 
+    'transforms': [3, 5, 7], #3, 
+    'signal': [16, 32],  # not important- the autoregression network output , 32
+    'hidden_features': [256, 512], # hidden layers of the autoregression network , 256, 
+    'hidden_features_no' : [3,5,7], 
+    'activation': [nn.ELU, nn.ReLU],
     'optimizer': ['AdamW'],
-    'init_lr': [5e-4, 1e-5] , # [1e-3, 5e-4, 1e-4, 1e-5],
-    'weight_decay': [1e-4], #[0, 1e-4, 1e-3, 1e-2],
+    'init_lr':  [1e-3, 5e-4, 1e-4, 1e-5], #[5e-4, 1e-5]
+    'weight_decay': [0, 1e-4, 1e-3, 1e-2], #[1e-4], #
     'scheduler': ['ReduceLROnPlateau'], #, 'CosineAnnealingLR'],
-    'min_lr': [1e-5], # 1e-6
-    'patience': [16, 32], #8
-    'epochs': [1024],
+    'min_lr': [1e-5, 1e-6], # 1e-6
+    'patience': [8, 16, 32], #8
+    'epochs': [512, 1024],
     'stop_criterion': ['early'], #, 'late'],
-    'batch_size':  [512, 1024], #[256, 512, 1024, 2048],
+    'batch_size':  [256, 512, 1024, 2048],
     'spectral_length' : [6144], #[1536, 3072, 6144]
+    'factor' : [0.7, 0.5, 0.3], 
+    'noise_scaling' : [25, 50, 100, 200], 
+    'SOSF_degree' : [2,3,4],
+    'SOSF_poly' : [2,4,6],
 }
 
 
-@job(array=2**4, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
+@job(array=2**7, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
 def experiment(index: int) -> None:
     # Config
     config = {
@@ -91,56 +96,100 @@ def experiment(index: int) -> None:
         for key, values in CONFIGS.items()
     }
     
-    run = wandb.init(project='highres--sweep-moree', config=config)
+    run = wandb.init(project='highres--sweep-moreee', config=config)
     
     # Simulator
     # simulator = Simulator(noisy=False)
     
     def noisy(x: Tensor) -> Tensor:
-        # return x + simulator.sigma * torch.randn_like(x)
-        data_uncertainty = Data().err * Data().flux_scaling*50 #this is 10% of the median of the means of spectra in the training set.
-        # print(x.is_cuda, (torch.from_numpy(data_uncertainty)).is_cuda, torch.randn_like(x).is_cuda)
+        data_uncertainty = Data().err * Data().flux_scaling*config['noise_scaling'] #50 is 10% of the median of the means of spectra in the training set.
         x = x + torch.from_numpy(data_uncertainty).cuda() * torch.randn_like(x)
         return x
 
     l, u = torch.tensor(LOWER), torch.tensor(UPPER)
-    
-    # Estimator
-    if config['embedding'] == 'shallow':
-        embedding = ResMLP(6144, 64, hidden_features=[512] * 2 + [256] * 3 + [128] * 5, activation= nn.ELU)
-    else:
-        embedding = ResMLP(6144, 128, hidden_features=[512] * 3 + [256] * 5 + [128] * 7, activation= nn.ELU)
 
-    if config['flow'] == 'NSF':
-        estimator = NPE(
-            19, embedding.out_features,
-            # moments=((l + u) / 2, (l - u) / 2),
-            transforms=config['transforms'],
-            build=NSF,
-            bins=config['signal'],
-            hidden_features=[config['hidden_features']] * 5,
-            activation=config['activation'],
-        )
-    else:
-        estimator = NPE(
-            19, embedding.out_features,
-            # moments=((l + u) / 2, (l - u) / 2),
-            transforms=config['transforms'],
-            build=NAF,
-            signal=config['signal'],
-            hidden_features=[config['hidden_features']] * 5,
-            activation=config['activation'],
-        )
-    
-    # print(embedding, flush=True)
-    # print(estimator, flush=True)
+    class NPEWithEmbedding(nn.Module):
+        def __init__(self):
+            super().__init__()
 
-    embedding.double().cuda(), estimator.double().cuda()
+            # Estimator
+            if config['embedding'] == 'shallow':
+                self.embedding = ResMLP(6144, 64, hidden_features=[512] * 2 + [256] * 3 + [128] * 5, activation= nn.ELU)
+            else:
+                self.embedding = ResMLP(6144, 128, hidden_features=[512] * 3 + [256] * 5 + [128] * 7, activation= nn.ELU)
+            
+            if config['flow'] == 'NCSF':
+                self.npe = NPE(
+                    19, self.embedding.out_features,
+                    # moments=((l + u) / 2, (l - u) / 2),
+                    transforms=config['transforms'],
+                    build=NCSF,
+                    bins=config['signal'],
+                    hidden_features=[config['hidden_features']] * config['hidden_features_no'],
+                    activation=config['activation'],
+                )
+            elif config['flow'] == 'MAF':
+                self.npe = NPE(
+                    19, self.embedding.out_features,
+                    # moments=((l + u) / 2, (l - u) / 2),
+                    transforms=config['transforms'],
+                    build=MAF,
+                    # bins=config['signal'],
+                    # hidden_features=[config['hidden_features']] * config['hidden_features_no'],
+                    # activation=config['activation'],
+                )
+
+
+            elif config['flow'] == 'SOSPF':
+                    self.npe = NPE(
+                    19, self.embedding.out_features,
+                    # moments=((l + u) / 2, (l - u) / 2),
+                    transforms=config['transforms'],
+                    build=SOSPF,
+                    degree = config['SOSF_degree'],
+                    polynomials = config['SOSF_poly'],
+                    # signal=config['signal'],
+                    # hidden_features=[config['hidden_features']] * config['hidden_features_no'],
+                    # activation=config['activation'],
+                )
+                    
+            elif config['flow'] == 'UNAF':
+                    self.npe = NPE(
+                    19, self.embedding.out_features,
+                    # moments=((l + u) / 2, (l - u) / 2),
+                    transforms=config['transforms'],
+                    build=UNAF,
+                    signal=config['signal'],
+                    hidden_features=[config['hidden_features']] * config['hidden_features_no'],
+                    activation=config['activation'],
+                )
+            
+            elif config['flow'] == 'CNF':
+                    self.npe = NPE(
+                    19, self.embedding.out_features,
+                    # moments=((l + u) / 2, (l - u) / 2),
+                    transforms=config['transforms'],
+                    build=CNF,
+                    # signal=config['signal'],
+                    # hidden_features=[config['hidden_features']] * config['hidden_features_no'],
+                    # activation=config['activation'],
+                )
+            
+
+        def forward(self, theta: Tensor, x: Tensor) -> Tensor:
+            y = self.embedding(x)
+            return self.npe(theta, y)
+
+        def flow(self, x: Tensor):  # -> Distribution
+            out = self.npe.flow(self.embedding(x)) #.to(torch.double)) #
+            return out
+
+    estimator = NPEWithEmbedding().double().cuda()
 
     # Optimizer
     loss = NPELoss(estimator)
-    optimizer = optim.AdamW(chain(embedding.parameters(), estimator.parameters()), lr=config['init_lr'], weight_decay=config['weight_decay'])
-    scheduler = sched.ReduceLROnPlateau(optimizer, factor=0.5, min_lr=config['min_lr'], patience=config['patience'], threshold=1e-2, threshold_mode='abs')
+    optimizer = optim.AdamW(estimator.parameters(), lr=config['init_lr'], weight_decay=config['weight_decay'])
+    scheduler = sched.ReduceLROnPlateau(optimizer, factor= config['factor'], min_lr=config['min_lr'], patience=config['patience'], threshold=1e-2, threshold_mode='abs')
     step = GDStep(optimizer, clip=1)
 
     # Data
@@ -151,25 +200,24 @@ def experiment(index: int) -> None:
     def pipe(theta: Tensor, x: Tensor) -> Tensor:
         theta, x = theta.cuda(), x.cuda()
         x = noisy(x)
-        x = embedding(x)
         return loss(theta, x)
 
     for epoch in tqdm(range(config['epochs']), unit='epoch'):
-        embedding.train(), estimator.train()
+        estimator.train()
         
         start = time.time()
         losses = torch.stack([
             step(pipe(theta.float(), x[:,0].float()))
-            for theta, x in islice(trainset, 2**8)
+            for theta, x in islice(trainset, 70) #770
         ]).cpu().numpy()
         end = time.time()
         
-        embedding.eval(), estimator.eval()
+        estimator.eval()
         
         with torch.no_grad():            
             losses_val = torch.stack([
                 pipe(theta.float(), x[:,0].float())
-                for theta, x in islice(validset, 2**5)
+                for theta, x in islice(validset, 20) #90
             ]).cpu().numpy()
 
         run.log({
@@ -186,9 +234,8 @@ def experiment(index: int) -> None:
         runpath = savepath / f'{run.name}' #_{run.id}'
         runpath.mkdir(parents=True, exist_ok=True)
 
-        if epoch % 50 ==0 : 
+        if epoch % 100 ==0 : 
                 torch.save({
-                        'embedding': embedding.state_dict(),
                         'estimator': estimator.state_dict(),
                         'optimizer': optimizer.state_dict(),
             },  runpath / f'states_{epoch}.pth')
@@ -197,58 +244,56 @@ def experiment(index: int) -> None:
             break
 
 
-    # Evaluation
-    plt.rcParams.update(nice_rc(latex=True))
+    # # Evaluation
+    # plt.rcParams.update(nice_rc(latex=True))
 
-    ## Coverage
-    testset = H5Dataset(datapath / 'test.h5', batch_size=2**4)
-    d = Data()
-    ranks = []
+    # ## Coverage
+    # testset = H5Dataset(datapath / 'test.h5', batch_size=2**4)
+    # d = Data()
+    # ranks = []
 
-    with torch.no_grad():
-        for theta, x in tqdm(islice(testset, 2**8)):
-            theta, x = theta.cuda(), x.cuda()
-            x = x[:,0]
-            x = noisy(x)
-            x = embedding(x)
+    # with torch.no_grad():
+    #     for theta, x in tqdm(islice(testset, 2**8)):
+    #         theta, x = theta.cuda(), x.cuda()
+    #         x = x[:,0]
+    #         x = noisy(x)
+    #         print(x.size())
+    #         posterior = estimator.flow(x)
+    #         samples = posterior.sample((2**10,))
+    #         log_p = posterior.log_prob(theta)
+    #         log_p_samples = posterior.log_prob(samples)
 
-            posterior = estimator.flow(x)
-            samples = posterior.sample((2**10,))
-            log_p = posterior.log_prob(theta)
-            log_p_samples = posterior.log_prob(samples)
+    #         ranks.append((log_p_samples < log_p).float().mean(dim=0).cpu())
 
-            ranks.append((log_p_samples < log_p).float().mean(dim=0).cpu())
+    # ranks = torch.cat(ranks)
+    # ecdf_fig = coverage_plot(ranks, coverages = np.linspace(0, 1, 256))
+    # ecdf_fig.savefig(runpath / 'coverage.pdf')
 
-    ranks = torch.cat(ranks)
-    ecdf_fig = coverage_plot(ranks, coverages = np.linspace(0, 1, 256))
-    ecdf_fig.savefig(runpath / 'coverage.pdf')
+    # ## Corner
+    # # dataset = H5Dataset(datapath / 'event.h5')
+    # # theta_star, x_star = dataset[1]
+    # x_star = d.flux*d.flux_scaling
 
-    ## Corner
-    # dataset = H5Dataset(datapath / 'event.h5')
-    # theta_star, x_star = dataset[1]
-    x_star = d.flux*d.flux_scaling
-
-    with torch.no_grad():
-        x = embedding(x_star.cuda())
-        theta = torch.cat([
-            estimator.sample(x, (2**14,)).cpu()
-            for _ in range(2**6)
-        ])
+    # with torch.no_grad():
+    #     theta = torch.cat([
+    #         estimator.sample(x_star.cuda(), (2**14,)).cpu()
+    #         for _ in range(2**6)
+    #     ])
     
-    theta_numpy = theta.double().numpy() #convert to Numpy array
-    df_theta = pd.DataFrame(theta_numpy) #convert to a dataframe
-    df_theta.to_csv(runpath/ 'theta.csv' ,index=False) #save to file
+    # theta_numpy = theta.double().numpy() #convert to Numpy array
+    # df_theta = pd.DataFrame(theta_numpy) #convert to a dataframe
+    # df_theta.to_csv(runpath/ 'theta.csv' ,index=False) #save to file
 
-    corner_fig = corner(
-        theta,
-        smooth=2,
-        bounds=(LOWER, UPPER),
-        labels=LABELS,
-        legend=r'$p_{\phi}(\theta | x^*)$',
-        # markers=[theta_star],
-        figsize=(12, 12),
-    )
-    corner_fig.savefig(runpath / 'corner.pdf')
+    # corner_fig = corner(
+    #     theta,
+    #     smooth=2,
+    #     bounds=(LOWER, UPPER),
+    #     labels=LABELS,
+    #     legend=r'$p_{\phi}(\theta | x^*)$',
+    #     # markers=[theta_star],
+    #     figsize=(12, 12),
+    # )
+    # corner_fig.savefig(runpath / 'corner.pdf')
     
     # ## NumPy
     # theta_star, x_star = theta_star.double().numpy(), x_star.double().numpy()
@@ -297,12 +342,12 @@ def experiment(index: int) -> None:
 
     # res_fig.savefig(runpath / 'residuals.pdf')
 
-    run.log({
-        'coverage': wandb.Image(ecdf_fig),
-        'corner': wandb.Image(corner_fig),
-        # 'pt_profile': wandb.Image(pt_fig),
-        # 'res_fig': wandb.Image(res_fig),
-    })
+    # run.log({
+    #     'coverage': wandb.Image(ecdf_fig),
+    #     'corner': wandb.Image(corner_fig),
+    #     # 'pt_profile': wandb.Image(pt_fig),
+    #     # 'res_fig': wandb.Image(res_fig),
+    # })
     run.finish()
 
 
