@@ -184,6 +184,9 @@ def experiment(index: int) -> None:
             out = self.npe.flow(self.embedding(x)) #.to(torch.double)) #
             return out
 
+    if (config['flow'] == 'SOSPF') | (config['flow'] == 'UNAF'):
+        estimator = NPEWithEmbedding().cuda()
+    
     estimator = NPEWithEmbedding().double().cuda()
 
     # Optimizer
