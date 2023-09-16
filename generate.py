@@ -13,7 +13,7 @@ from typing import *
 from lampe.data import JointLoader, H5Dataset
 from zuko.distributions import BoxUniform
 
-from train_new import LOWER, UPPER
+# from train_new import LOWER, UPPER
 from parameter import *
 from spectra_simulator import SpectrumMaker 
 
@@ -25,6 +25,28 @@ from torch.utils.data import DataLoader, Dataset, IterableDataset
 import GISIC
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
+
+LABELS, LOWER, UPPER = zip(*[
+[                  r'$FeH$',  -1.5, 1.5],   # temp_node_9
+[                  r'$CO$',  0.1, 1.6],  # CO_mol_scale
+[                  r'$\log g$',   2.5, 5.5],          # log g
+[                  r'$Tint$',  300,   3500],   # temp_node_5
+[                  r'$T1$',  300,   3500],      # T_bottom
+[                  r'$T2$',  300,   3500],   # temp_node_1
+[                  r'$T3$',  300,   3500],   # temp_node_2
+[                  r'$alpha$',  1.0, 2.0],   # temp_node_4
+[                  r'$log_delta$', 3.0, 8.0],   # temp_node_3
+[                  r'$log_Pquench$', -6.0, 3.0],   # temp_node_6
+[                  r'$logFe$',  -2.3, 1.0], # CH4_mol_scale
+[                  r'$fsed$',  0.0, 10.0],   # temp_node_8
+[                  r'$logKzz$',  5.0, 13.0], # H2O_mol_scale \_mol\_scale
+[                  r'$sigmalnorm$',  1.05, 3.0], # C2O_mol_scale
+[                  r'$log\_iso\_rat$',  -11.0, -1.0],   # temp_node_7
+[                  r'$R\_P$', 0.8, 2.0],             # R_P / R_Jupyter
+[                  r'$rv$',  20.0, 35.0], # NH3_mol_scale
+[                  r'$vsini$',  10.0, 30.0], # H2S_mol_scale
+[                  r'$limb\_dark$',  0.0, 1.0], # PH3_mol_scale
+])
 
 process = ProcessSpec()
 

@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
 
-from train_new import LABELS, LOWER, UPPER
+from train_new_plotting_2 import LABELS, LOWER, UPPER
 from adding_legends import legends
 
 from lampe.plots import corner 

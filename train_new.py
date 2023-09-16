@@ -33,7 +33,7 @@ from zuko.distributions import BoxUniform
 # from parameter import *
 
 from DataProcuring import Data 
-from ProcessingSpec import ProcessSpec
+# from ProcessingSpec import ProcessSpec
 # from Embedding.CNNwithAttention import CNNwithAttention
 from Embedding.MHA import MultiHeadAttentionwithMLP, GPTLanguageModel
 # from Embedding.MLP import MLP 
@@ -102,14 +102,14 @@ class NPEWithEmbedding(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.embedding = nn.Sequential(
-            SoftClip(100.0),
-            ResMLP(
-                6144, 128,
-                hidden_features=[512] * 2 + [256] * 3 + [128] * 5,
-                activation=nn.ELU,
-            ),
-        )
+        # self.embedding = nn.Sequential(
+        #     SoftClip(100.0),
+        #     ResMLP(
+        #         6144, 128,
+        #         hidden_features=[512] * 2 + [256] * 3 + [128] * 5,
+        #         activation=nn.ELU,
+        #     ),
+        # )
 
         # self.embedding = nn.Sequential(
             # SoftClip(100.0),
@@ -125,11 +125,11 @@ class NPEWithEmbedding(nn.Module):
 
             # CausalConvLayers(1, 4, 32, 2, 32),  #in_channels, out_channels, MM, stride, kernel_size
 
-        # self.embedding =  ResMLP(
-        #         6144 , 128, hidden_features=[512] * 2 + [256] * 3 + [128] * 5,  #1291 #6144, 3072, 1536
-        #         # 6144 , 128, hidden_features=[512] * 3 + [256] * 5 + [128] * 7,  #1291 #6144, 3072, 1536
-        #         activation=nn.ELU,
-        #     )
+        self.embedding =  ResMLP(
+                # 6144 , 128, hidden_features=[512] * 2 + [256] * 3 + [128] * 5,  #1291 #6144, 3072, 1536
+                6144 , 128, hidden_features=[512] * 3 + [256] * 5 + [128] * 7,  #1291 #6144, 3072, 1536
+                activation=nn.ELU,
+            )
         # self.flatten()
 
         # this builds your transform
@@ -144,15 +144,15 @@ class NPEWithEmbedding(nn.Module):
         #     # activation= nn.ELU,
         # )
         
-        # self.npe = NPE(
-        #     19, self.embedding.out_features,
-        #     # moments=((l + u) / 2, (l - u) / 2),
-        #     transforms=5,
-        #     build=NSF,
-        #     bins=8,
-        #     hidden_features=[512] * 5,
-        #     activation= nn.ELU,
-        # )
+        self.npe = NPE(
+            19, self.embedding.out_features,
+            # moments=((l + u) / 2, (l - u) / 2),
+            transforms=3,
+            build=MAF,
+            # bins=8,
+            # hidden_features=[512] * 5,
+            # activation= nn.ELU,
+        )
 
         # self.npe = NPE(
         #     19, 64, 
@@ -173,15 +173,15 @@ class NPEWithEmbedding(nn.Module):
         #     activation= nn.ReLU,
         # )
 
-        self.npe = NPE(
-            19, 128, #self.embedding.out_features,
-            # moments=((l + u) / 2, (l - u) / 2),
-            transforms=3,
-            build=MAF,
-            # bins=32,
-            # hidden_features=[512] * 3,
-            # activation= nn.ELU,
-        )
+        # self.npe = NPE(
+        #     19, 128, #self.embedding.out_features,
+        #     # moments=((l + u) / 2, (l - u) / 2),
+        #     transforms=3,
+        #     build=MAF,
+        #     # bins=32,
+        #     # hidden_features=[512] * 3,
+        #     # activation= nn.ELU,
+        # )
         
 
     def forward(self, theta: Tensor, x: Tensor) -> Tensor:
@@ -228,107 +228,112 @@ def pipeout(theta: Tensor, x: Tensor) -> Tensor:
         return theta, x
    
 
-@job(array=2, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
+@job(array=1, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
 def train(i: int):
 
-#     config_dict = {
+    config_dict = {
         
-#                 'embedding': 'shallow(128)', # + CausalConv 12 layers' , #'CausalConv(1, 4, 32, 2, 32)', #'MAH_nopositional-512, 8, 8, 512',  #shallow = [2,3,5], deep = [3,5,7] ResMLP[2,3,5]
-#                 'SoftClip': 'yes',
-#                 'flow': 'MAF',
-#                 'transforms': 3, 
-#                 # 'hidden_features': 512, # hidden layers of the autoregression network
-#                 'activation': 'ELU',
-#                 'optimizer': 'AdamW',
-#                 'init_lr': 1e-4,
-#                 'weight_decay': 1e-2,
-#                 'scheduler': 'ReduceLROnPlateau',
-#                 'min_lr': 1e-7,
-#                 'patience': 32,
-#                 'epochs': 2000,
-#                 'stop_criterion': 'early', 
-#                 'batch_size': 2048,
-#                 'gradient_steps_train': 256, #400, #20, #770, 
-#                 'gradient_steps_valid': 32, #50, #9, #90, 
-#                 'noisy': 'err*scaling*160',
-#                 'factor' : 0.5,
-#                 # 'bins' : 8,
-#              } 
+                'embedding': 'deep', # + CausalConv 12 layers' , #'CausalConv(1, 4, 32, 2, 32)', #'MAH_nopositional-512, 8, 8, 512',  #shallow = [2,3,5], deep = [3,5,7] ResMLP[2,3,5]
+                'SoftClip': 'no',
+                'flow': 'MAF',
+                'transforms': 3, 
+                # 'hidden_features': 512, # hidden layers of the autoregression network
+                'activation': 'ELU',
+                'optimizer': 'AdamW',
+                'init_lr': 1e-3,
+                'weight_decay': 1e-2,
+                'scheduler': 'ReduceLROnPlateau',
+                'min_lr': 1e-7,
+                'patience': 32,
+                'epochs': 2500,
+                'stop_criterion': 'none', 
+                'batch_size': 2048,
+                'gradient_steps_train': 20, #400, #20, #770, 
+                'gradient_steps_valid': 9, #50, #9, #90, 
+                'noisy': '160',
+                'factor' : 0.5,
+                # 'bins' : '8',
+                # 'training' : 'extension of fiery-field-137'
+             } 
 
-#     # Run
-#     run = wandb.init(project='highres--sweep-moreee',  config = config_dict) #+CausalConv
+    # Run
+    run = wandb.init(project='highres--sweep-moreee',  config = config_dict) #+CausalConv
 
-#     # Data
-#     trainset = H5Dataset(datapath / 'train.h5', batch_size=2048, shuffle=True)
-#     validset = H5Dataset(datapath / 'valid.h5', batch_size=2048, shuffle=True)
+    # Data
+    trainset = H5Dataset(datapath / 'train.h5', batch_size=2048, shuffle=True)
+    validset = H5Dataset(datapath / 'valid.h5', batch_size=2048, shuffle=True)
 
-#     # Training
-# #     process = Processing()
     
-#     estimator = NPEWithEmbedding().double().cuda()
+    estimator = NPEWithEmbedding().double().cuda()
 
-#     prior = BoxUniform(torch.tensor(LOWER).cuda(), torch.tensor(UPPER).cuda())
-#     loss = NPELoss(estimator)
-#     # loss = BNPELoss(estimator, prior)
-#     optimizer = optim.AdamW(estimator.parameters(), lr=1e-4, weight_decay=1e-2)
-#     step = GDStep(optimizer, clip=1.0)
-#     scheduler = sched.ReduceLROnPlateau(
-#         optimizer,
-#         factor=0.5,
-#         min_lr=1e-7,
-#         patience=32,
-#         threshold=1e-2,
-#         threshold_mode='abs',
-#     )
+    # # #retraining
+    # states = torch.load(savepath / 'fiery-field-137' / 'states_700.pth', map_location='cpu')
+    # estimator.load_state_dict(states['estimator'])
+    # estimator.cuda()
 
-#     def pipe(theta: Tensor, x: Tensor) -> Tensor:
-#         x = noisy(x)        
-#         theta, x = theta.cuda(), x.cuda()
-#         return loss(theta, x.cuda())
+    prior = BoxUniform(torch.tensor(LOWER).cuda(), torch.tensor(UPPER).cuda())
+    loss = NPELoss(estimator)
+    # loss = BNPELoss(estimator, prior)
+    optimizer = optim.AdamW(estimator.parameters(), lr= 1e-3, weight_decay=1e-2)
+    step = GDStep(optimizer, clip=1.0)
+    scheduler = sched.ReduceLROnPlateau(
+        optimizer,
+        factor=0.5,
+        min_lr=1e-7,
+        patience=32,
+        threshold=1e-2,
+        threshold_mode='abs',
+    )
 
-#     for epoch in tqdm(range(2001), unit='epoch'):
-#         estimator.train()
-#         start = time.time()
+    def pipe(theta: Tensor, x: Tensor) -> Tensor:
+        x = noisy(x)        
+        theta, x = theta.cuda(), x.cuda()
+        return loss(theta, x.cuda())
 
-#         losses = torch.stack([
-#             step(pipe(theta.float(), x[:,0].float())) #16,6144 3072, 1536 v[:,1, :1536])
-#             for theta, x in islice(trainset, 256) #770 20 400
-#         ]).cpu().numpy()
+    for epoch in tqdm(range(2501), unit='epoch'):
+        estimator.train()
+        start = time.time()
+
+        losses = torch.stack([
+            step(pipe(theta.float(), x[:,0].float())) #16,6144 3072, 1536 v[:,1, :1536])
+            for theta, x in islice(trainset, 20) #770 20 400 256
+        ]).cpu().numpy()
 
 
-#         end = time.time()
-#         estimator.eval()
+        end = time.time()
+        estimator.eval()
 
-#         with torch.no_grad():
-#             losses_val = torch.stack([
-#                 pipe(theta.float(), x[:,0].float())
-#                 for theta, x in islice(validset, 32) #90 9 50
-#             ]).cpu().numpy()
+        with torch.no_grad():
+            losses_val = torch.stack([
+                pipe(theta.float(), x[:,0].float())
+                for theta, x in islice(validset, 9) #90 9 50 32
+            ]).cpu().numpy()
 
-#         run.log({
-#             'lr': optimizer.param_groups[0]['lr'],
-#             'loss': np.nanmean(losses),
-#             'loss_val': np.nanmean(losses_val),
-#             'nans': np.isnan(losses).mean(),
-#             'nans_val': np.isnan(losses_val).mean(),
-#             'speed': len(losses) / (end - start),
-#         })
+        run.log({
+            'lr': optimizer.param_groups[0]['lr'],
+            'loss': np.nanmean(losses),
+            'loss_val': np.nanmean(losses_val),
+            'nans': np.isnan(losses).mean(),
+            'nans_val': np.isnan(losses_val).mean(),
+            'speed': len(losses) / (end - start),
+        })
 
-#         scheduler.step(np.nanmean(losses_val))
+        scheduler.step(np.nanmean(losses_val))
 
-#         runpath = savepath / run.name
-#         runpath.mkdir(parents=True, exist_ok=True)
+        runpath = savepath / run.name
+        runpath.mkdir(parents=True, exist_ok=True)
 
-#         if epoch % 50 ==0 : 
-#                 torch.save({
-#                 'estimator': estimator.state_dict(),
-#                 'optimizer': optimizer.state_dict(),
-#             },  runpath / f'states_{epoch}.pth')
+        if epoch % 50 ==0 : 
+                torch.save({
+                'estimator': estimator.state_dict(),
+                'optimizer': optimizer.state_dict(),
+            },  runpath / f'states_{epoch}.pth')
+                # },  runpath / f'states_{epoch+700}.pth')
                 
-        ## if optimizer.param_groups[0]['lr'] <= scheduler.min_lrs[0]:
-        ##     break
+        # if optimizer.param_groups[0]['lr'] <= scheduler.min_lrs[0]:
+        #     break
 
-    # run.finish()
+    run.finish()
 
     ####################
     ## plotting all together after a run
@@ -336,16 +341,19 @@ def train(i: int):
     #     'super-dream-39', 'driven-dream-118']
     # epochs = [500, 1000, 500, 400]
 
-    m = ['copper-oath-138']
-    epochs = [800]
+    # m = [ 'apricot-violet-136-1', 'fiery-field-137-1'] #, 'spring-elevator-13', 'spring-sun-3', 'stoic-snow-3'] #'atomic-pyramid-2','balmy-frost-12', 'charmed-glade-9', 'fluent-gorge-11', 'jolly-salad-8',
+    # epochs = [725, 725]
+    # epoch = epochs[i]
     ####################
 
-    runpath = savepath / m[i] #'atomic-energy-10' # 'stellar-brook-134' #'ethereal-donkey-69' #'' #''# #'devout-grass-27' #'amber-eon-17' #'resilient-grass-112' #avid-yogurt-110 'revived-snow-36_rptxx8d0' #'ruby-energy-41_xzxzcc6t'  #dainty-paper-3 morning-silence-4 easy-sun-6
-    runpath.mkdir(parents=True, exist_ok=True)
-    epoch = epochs[i]
+    # runpath = savepath / m[i] #'atomic-energy-10' # 'stellar-brook-134' #'ethereal-donkey-69' #'' #''# #'devout-grass-27' #'amber-eon-17' #'resilient-grass-112' #avid-yogurt-110 'revived-snow-36_rptxx8d0' #'ruby-energy-41_xzxzcc6t'  #dainty-paper-3 morning-silence-4 easy-sun-6
+    # runpath = savepath / 'copper-oath-138'
+    # runpath.mkdir(parents=True, exist_ok=True)
+    # epoch = 1000
 
-    plot = plots(runpath, int(epoch/50) * 50, i) ########********
-    # plot = plots(runpath, int(epoch))
+    # plot = plots(runpath, int(epoch/25) * 25, i) ########********
+    plot = plots(runpath, int(epoch/50) * 50)
+    # plot = plots(runpath, int(epoch+700))
     plot.coverage()
     plot.cornerplot()
     # plot.ptprofile()
@@ -355,92 +363,92 @@ def train(i: int):
 
 class plots(): 
 
-    config= {}
-    config['embedding'] = ['shallow']
-    config['transforms'] = [3]
-    config['noise_scaling'] = [25]
+    ######################################################################################################
+    # ## plotting many models after their runs
+    # config= {}
+    # config['embedding'] = ['deep', 'deep']
+    # config['transforms'] = [5,5]
+    # config['noise_scaling'] = [25,25]
+    ######################################################################################################
 
-    def __init__(self, runpath, ep, ind):
+    # def __init__(self, runpath, ep, ind):
+    def __init__(self, runpath, ep):
         self.runpath = runpath
         self.ep = ep
-        self.ind = ind
-
+        
         self.savepath_plots = self.runpath  / ('plots_' + str(ep))
         self.savepath_plots.mkdir(parents=True, exist_ok=True)
 
+        # self.estimator = NPEWithEmbedding().double() 
         ######################################################################################################
-        ## plotting all together after a run
+        # self.ind = ind
+        # self.estimator = self.NPEWithEmbedding(self.ind).double() 
+        ######################################################################################################
 
-        # self.config= {}
-        # self.config['embedding'] = ['shallow','shallow', 'shallow', 'shallow']
-        # self.config['transforms'] = [5, 7, 3, 7]
-        # self.config['noise_scaling'] = [25, 25, 50, 50]
-        ###################################################################################################
-
-        ########********
-        self.estimator = self.NPEWithEmbedding(self.ind).double() 
         states = torch.load(self.runpath / ('states_' + str(ep) + '.pth'), map_location='cpu')
         self.estimator.load_state_dict(states['estimator'])
         self.estimator.cuda().eval()
 
         self.x_star =  d.flux*d.flux_scaling
 
-
     ######################################################################################################
-    def noisy(self, x):
-            data_uncertainty = Data().err * Data().flux_scaling*self.config['noise_scaling'][self.ind] #50 is 10% of the median of the means of spectra in the training set.
-            x = x + torch.from_numpy(data_uncertainty) * torch.randn_like(x)
-            return x
+    # ## plotting many models after their runs
+    # def noisy(self, x):
+    #         data_uncertainty = Data().err * Data().flux_scaling*self.config['noise_scaling'][self.ind] #50 is 10% of the median of the means of spectra in the training set.
+    #         x = x + torch.from_numpy(data_uncertainty) * torch.randn_like(x)
+    #         return x
     
-    def pipeout(self, theta: Tensor, x: Tensor) -> Tensor:
-        x = self.noisy(x)
-        theta, x = theta.cuda(), x.cuda()
-        return theta, x
+    # def pipeout(self, theta: Tensor, x: Tensor) -> Tensor:
+    #     x = self.noisy(x)
+    #     theta, x = theta.cuda(), x.cuda()
+    #     return theta, x
         
 
-    class NPEWithEmbedding(nn.Module):
-        def __init__(self, ind):
-            super().__init__()
+    # class NPEWithEmbedding(nn.Module):
+    #     def __init__(self, ind):
+    #         super().__init__()
 
-            # self.embedding = nn.Sequential(
-            #     SoftClip(100.0),
-            if plots.config['embedding'][ind] == 'shallow':
-                self.embedding= ResMLP(
-                        6144, 64,
-                        hidden_features=[512] * 2 + [256] * 3 + [128] * 5,
-                        activation=nn.ELU,
-                    )
-            else :
-                self.embedding= ResMLP(
-                        6144, 128,
-                        hidden_features=[512] * 3 + [256] * 5 + [128] * 7,
-                        activation=nn.ELU,
-                    )
+    #         # self.embedding = nn.Sequential(
+    #         #     SoftClip(100.0),
+    #         if plots.config['embedding'][ind] == 'shallow':
+    #             self.embedding= ResMLP(
+    #                     6144, 64,
+    #                     hidden_features=[512] * 2 + [256] * 3 + [128] * 5,
+    #                     activation=nn.ELU,
+    #                 )
+    #         else :
+    #             self.embedding= ResMLP(
+    #                     6144, 128,
+    #                     hidden_features=[512] * 3 + [256] * 5 + [128] * 7,
+    #                     activation=nn.ELU,
+    #                 )
 
-            self.npe = NPE(
-                19, self.embedding.out_features, #self.embedding.out_features,
-                transforms=plots.config['transforms'][ind],
-                build=MAF,
-            )
+    #         self.npe = NPE(
+    #             19, self.embedding.out_features, #self.embedding.out_features,
+    #             transforms=plots.config['transforms'][ind],
+    #             build=NSF,
+    #             bins=16,
+    #             hidden_features=[512] * 5,
+    #             activation=nn.ELU,
+    #         )
         
-        def forward(self, theta: Tensor, x: Tensor) -> Tensor:
-            y = self.embedding(x)
-            if torch.isnan(y).sum()>0:
-                print('NaNs in embedding')
-            return self.npe(theta, y)
+    #     def forward(self, theta: Tensor, x: Tensor) -> Tensor:
+    #         y = self.embedding(x)
+    #         if torch.isnan(y).sum()>0:
+    #             print('NaNs in embedding')
+    #         return self.npe(theta, y)
 
-        def flow(self, x: Tensor):  # -> Distribution
-            out = self.npe.flow(self.embedding(x)) #.to(torch.double)) #
-            return out
+    #     def flow(self, x: Tensor):  # -> Distribution
+    #         out = self.npe.flow(self.embedding(x)) #.to(torch.double)) #
+    #         return out
     ######################################################################################################
 
 
         ##########################
-
+        ## older models with embedding and estimator separate
         # states = torch.load(runpath / 'weights.pth', map_location='cpu')
         # # self.embedding = ResMLP(1536, 128, hidden_features=[512] * 3 + [256] * 5 + [128] * 7, activation= nn.ELU)
         # self.embedding = ResMLP(1536, 64, hidden_features=[512] * 2 + [256] * 3 + [128] * 5, activation= nn.ELU)
-
         # self.estimator = NPE(
         #     19, self.embedding.out_features,
         #     # moments=((l + u) / 2, (l - u) / 2),
@@ -454,31 +462,27 @@ class plots():
         # self.estimator.load_state_dict(states['estimator'])
         # self.embedding.double().cuda().eval()
         # self.estimator.double().cuda().eval()
+        ##########################
 
-        
-
-
-        # self.theta_star = np.array([1.8281200097266526,  3.27738747e+00,  3.04519050e+03,  6.19863555e-01,
-        #                         3.02635242e-01,  8.30375000e-01,  5.16561121e-01,  9.81491612e-01,
-        #                         2.01244637e-01,  9.97427008e-01,  4.69196605e-01,  4.80819158e-01,
-        #                         -2.24910475e+00, -9.28358797e+00, -5.68783505e+00, -3.04810332e+00,
-        #                         -4.20770164e+00, -6.60616189e+00, -8.28894535e+00, -5.05687608e+00,
-        #                         -6.99132061e+00, -5.75847936e+00])
+        # self.theta_star = np.array([stuff])
         # self.theta_paul = torch.load('/home/mvasist/WISEJ1828/WISEJ1828/5_unregPT/posterior_unregPT_b_24Apr2023.pth')
 
     def sampling_from_post(self, x, name, only_returning = True):
         
             if not only_returning: 
                 with torch.no_grad():
-                    #######*******
+                    
                     theta = torch.cat([ 
                         self.estimator.flow(x.cuda()).sample((2**14,)).cpu()
                         for _ in tqdm(range(2**6))
+            
                     ])
+                    #######*******
                     # theta = torch.cat([
                     #     self.estimator.flow(self.embedding(x).cuda()).sample((2**14,)).cpu()
                     #     for _ in tqdm(range(2**6))
                     # ])
+                    #######*******
 
                     
                 ##Saving to file
@@ -501,7 +505,10 @@ class plots():
 
         with torch.no_grad():
             for theta, x in tqdm(islice(testset, 128)):
-                theta, x = self.pipeout(theta, x[:, 0])
+                #############################################################################################################
+                # theta, x = self.pipeout(theta, x[:, 0])
+                #############################################################################################################
+                theta, x = pipeout(theta, x[:, 0])
                 posterior = self.estimator.flow(x)
                 samples = posterior.sample((1024,))
                 log_p = posterior.log_prob(theta)
@@ -583,7 +590,7 @@ class plots():
         fig = corner_mod([self.theta], legend=['NPE'], \
                     color= ['steelblue'] , figsize=(19,19), \
                 domain = (LOWER, UPPER), labels= LABELS)
-        fig.savefig(self.savepath_plots / 'corner_HST.pdf')
+        fig.savefig(self.savepath_plots / 'corner.pdf')
 
         import corner
         figure = corner.corner(self.theta[:100000].numpy(),
@@ -594,7 +601,7 @@ class plots():
                         show_titles=True,
                         title_kwargs={"fontsize": 12},
         )
-        figure.savefig(self.savepath_plots / 'corner_HSTcorner.pdf')
+        figure.savefig(self.savepath_plots / 'corner_corner.pdf')
 
 ###############################################################################################################
     def ptprofile(self):
