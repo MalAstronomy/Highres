@@ -3,6 +3,7 @@ from parameter import *
 from PyAstronomy.pyasl import fastRotBroad
 import astropy.constants as const
 import astropy.units as u
+from generate import param_set
 
 class ProcessSpec():
     d = Data()

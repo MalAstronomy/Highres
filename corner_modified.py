@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
 
-from train_new_plotting_2 import LABELS, LOWER, UPPER
+from train_new import LABELS, LOWER, UPPER
 from adding_legends import legends
 
 from lampe.plots import corner 
@@ -26,7 +26,7 @@ def corner_mod(theta, legend=['NPE', 'NS'], color= ['steelblue', 'orange'] , fig
         fig = corner(
                 th,
                 smooth=2,
-                domain = domain,
+                # domain = domain,
                 labels= labels,
                 figsize= figsize,
                 creds= [0.997, 0.955, 0.683], 

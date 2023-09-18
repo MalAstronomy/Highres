@@ -26,6 +26,7 @@ from lampe.data import H5Dataset
 from lampe.inference import NPE, NPELoss
 from lampe.nn import ResMLP
 from lampe.utils import GDStep
+from lampe.plots import corner
 
 from zuko.flows import NAF, MAF, NSF, NCSF, CNF
 from zuko.distributions import BoxUniform
@@ -48,12 +49,14 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 # import Embedding.CNN as CNN
 from corner_modified import *
 # from pt_plotting import *
-import corner
+# import corner
 
 scratch = os.environ.get('SCRATCH', '')
 # scratch = '/users/ricolandman/Research_data/npe_crires/'
-datapath = Path(scratch) / 'highres-sbi/data_fulltheta' #, data_fulltheta_norm
+datapath = Path(scratch) / 'highres-sbi/data_fulltheta' #,data_lessthan2e6 data_fulltheta_norm
+# savepath = Path(scratch) / 'highres-sbi/runs/sweep_moree/NSF/'
 savepath = Path(scratch) / 'highres-sbi/runs/sweep_moreee/CNF/'
+
 
 LABELS, LOWER, UPPER = zip(*[
 [                  r'$FeH$',  -1.5, 1.5],   # temp_node_9
@@ -102,14 +105,14 @@ class NPEWithEmbedding(nn.Module):
     def __init__(self):
         super().__init__()
 
-        # self.embedding = nn.Sequential(
-        #     SoftClip(100.0),
-        #     ResMLP(
-        #         6144, 128,
-        #         hidden_features=[512] * 2 + [256] * 3 + [128] * 5,
-        #         activation=nn.ELU,
-        #     ),
-        # )
+        self.embedding = nn.Sequential(
+            SoftClip(100.0),
+            ResMLP(
+                6144*2, 128,
+                hidden_features=[512] * 2 + [256] * 3 + [128] * 5,
+                activation=nn.ELU,
+            ),
+        )
 
         # self.embedding = nn.Sequential(
             # SoftClip(100.0),
@@ -125,11 +128,11 @@ class NPEWithEmbedding(nn.Module):
 
             # CausalConvLayers(1, 4, 32, 2, 32),  #in_channels, out_channels, MM, stride, kernel_size
 
-        self.embedding =  ResMLP(
-                # 6144 , 128, hidden_features=[512] * 2 + [256] * 3 + [128] * 5,  #1291 #6144, 3072, 1536
-                6144 , 128, hidden_features=[512] * 3 + [256] * 5 + [128] * 7,  #1291 #6144, 3072, 1536
-                activation=nn.ELU,
-            )
+        # self.embedding =  ResMLP(
+        #         # 6144 , 64, hidden_features=[512] * 2 + [256] * 3 + [128] * 5,  #1291 #6144, 3072, 1536
+        #         6144 , 128, hidden_features=[512] * 3 + [256] * 5 + [128] * 7,  #1291 #6144, 3072, 1536
+        #         activation=nn.ELU,
+        #     )
         # self.flatten()
 
         # this builds your transform
@@ -147,11 +150,11 @@ class NPEWithEmbedding(nn.Module):
         # self.npe = NPE(
         #     19, self.embedding.out_features,
         #     # moments=((l + u) / 2, (l - u) / 2),
-        #     transforms=3,
-        #     build=MAF,
-        #     # bins=8,
-        #     # hidden_features=[512] * 5,
-        #     # activation= nn.ELU,
+        #     transforms=5,
+        #     build=NSF,
+        #     bins=4,
+        #     hidden_features=[512] * 5,
+        #     activation= nn.ELU,
         # )
 
         # self.npe = NPE(
@@ -176,11 +179,11 @@ class NPEWithEmbedding(nn.Module):
         self.npe = NPE(
             19, 128, #self.embedding.out_features,
             # moments=((l + u) / 2, (l - u) / 2),
-            transforms=7,
-            build=CNF,
+            transforms=3,
+            build=MAF,
             # bins=32,
-            # hidden_features=[512] * 3,
-            # activation= nn.ELU,
+            hidden_features=[512] * 5,
+            activation= nn.ELU,
         )
         
 
@@ -215,8 +218,10 @@ class BNPELoss(nn.Module):
                     
                     
 def noisy(x):
-    data_uncertainty = Data().err * Data().flux_scaling*100 #50 is 10% of the median of the means of spectra in the training set.
-    x = x + torch.from_numpy(data_uncertainty) * torch.randn_like(x)
+    data_uncertainty = Data().err * Data().flux_scaling*160 #50 is 10% of the median of the means of spectra in the training set.
+    # x = x + torch.from_numpy(data_uncertainty) * torch.randn_like(x)
+    x[:,0, :] = x[:,0, :] + torch.from_numpy(data_uncertainty) * torch.randn(x[:,0,:].size())
+
     return x
 
 def rolling(a, roll=-2, axis = -1):
@@ -231,129 +236,132 @@ def pipeout(theta: Tensor, x: Tensor) -> Tensor:
 @job(array=1, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
 def train(i: int):
 
-    config_dict = {
+    # config_dict = {
         
-                'embedding': 'deep', # + CausalConv 12 layers' , #'CausalConv(1, 4, 32, 2, 32)', #'MAH_nopositional-512, 8, 8, 512',  #shallow = [2,3,5], deep = [3,5,7] ResMLP[2,3,5]
-                'SoftClip': 'no',
-                'flow': 'CNF',
-                'transforms': 7, 
-                # 'hidden_features': 512, # hidden layers of the autoregression network
-                # 'activation': 'ELU',
-                'optimizer': 'AdamW',
-                'init_lr': 0.0000078125,
-                'weight_decay': 0,
-                'scheduler': 'ReduceLROnPlateau',
-                'min_lr': 1e-8,
-                'patience': 16,
-                'epochs': 1000,
-                'stop_criterion': 'none', 
-                'batch_size': 512,
-                'gradient_steps_train': 70, #400, #20, #770, 
-                'gradient_steps_valid': 20, #50, #9, #90, 
-                'noise': '100',
-                'factor' : 0.5,
-                # 'bins' : '8',
-                # 'training' : 'extension of fiery-field-137'
-             } 
+    #             'embedding': 'deep', # + CausalConv 12 layers' , #'CausalConv(1, 4, 32, 2, 32)', #'MAH_nopositional-512, 8, 8, 512',  #shallow = [2,3,5], deep = [3,5,7] ResMLP[2,3,5]
+    #             'SoftClip': 'no',
+    #             'flow': 'NSF',
+    #             'transforms': 5, 
+    #             'hidden_features': 512, # hidden layers of the autoregression network
+    #             'activation': 'ELU',
+    #             'optimizer': 'AdamW',
+    #             'init_lr': 0.00001412376245,
+    #             'weight_decay': 1e-4,
+    #             'scheduler': 'ReduceLROnPlateau',
+    #             'min_lr': 1e-8,
+    #             'patience': 16,
+    #             'epochs': 1000,
+    #             'stop_criterion': 'none', 
+    #             'batch_size': 1024,
+    #             'gradient_steps_train': 256, #400, #20, #770, 
+    #             'gradient_steps_valid': 32, #50, #9, #90, 
+    #             'noisy': '25',
+    #             'factor' : 0.7,
+    #             'bins' : '8',
+    #             'training' : 'extension of fiery-field-137'
+    #          } 
 
-    # Run
-    run = wandb.init(project='highres--sweep-moreee',  config = config_dict, name = 'fearless-yogurt-72-1') #+CausalConv
+    # # Run
+    # run = wandb.init(project='highres--sweep-moree',  config = config_dict, name = 'fiery-field-137-1') #+CausalConv
 
-    # Data
-    trainset = H5Dataset(datapath / 'train.h5', batch_size=512, shuffle=True)
-    validset = H5Dataset(datapath / 'valid.h5', batch_size=512, shuffle=True)
+    # # Data
+    # trainset = H5Dataset(datapath / 'train.h5', batch_size=1024, shuffle=True)
+    # validset = H5Dataset(datapath / 'valid.h5', batch_size=1024, shuffle=True)
 
     
-    estimator = NPEWithEmbedding().double().cuda()
+    # estimator = NPEWithEmbedding().double().cuda()
 
-    # #retraining
-    states = torch.load(savepath / 'fearless-yogurt-72' / 'states_500.pth', map_location='cpu')
-    estimator.load_state_dict(states['estimator'])
-    estimator.cuda()
+    # # #retraining
+    # states = torch.load(savepath / 'fiery-field-137' / 'states_700.pth', map_location='cpu')
+    # estimator.load_state_dict(states['estimator'])
+    # estimator.cuda()
 
-    prior = BoxUniform(torch.tensor(LOWER).cuda(), torch.tensor(UPPER).cuda())
-    loss = NPELoss(estimator)
-    # loss = BNPELoss(estimator, prior)
-    optimizer = optim.AdamW(estimator.parameters(), lr= 0.0000078125, weight_decay=0)
-    step = GDStep(optimizer, clip=1.0)
-    scheduler = sched.ReduceLROnPlateau(
-        optimizer,
-        factor=0.5,
-        min_lr=1e-8,
-        patience=16,
-        threshold=1e-2,
-        threshold_mode='abs',
-    )
+    # prior = BoxUniform(torch.tensor(LOWER).cuda(), torch.tensor(UPPER).cuda())
+    # loss = NPELoss(estimator)
+    # # loss = BNPELoss(estimator, prior)
+    # optimizer = optim.AdamW(estimator.parameters(), lr= 0.00001412376245, weight_decay=1e-4)
+    # step = GDStep(optimizer, clip=1.0)
+    # scheduler = sched.ReduceLROnPlateau(
+    #     optimizer,
+    #     factor=0.7,
+    #     min_lr=1e-8,
+    #     patience=16,
+    #     threshold=1e-2,
+    #     threshold_mode='abs',
+    # )
 
-    def pipe(theta: Tensor, x: Tensor) -> Tensor:
-        x = noisy(x)        
-        theta, x = theta.cuda(), x.cuda()
-        return loss(theta, x.cuda())
+    # def pipe(theta: Tensor, x: Tensor) -> Tensor:
+    #     x = noisy(x)        
+    #     theta, x = theta.cuda(), x.cuda()
+    #     return loss(theta, x.cuda())
 
-    for epoch in tqdm(range(1001), unit='epoch'):
-        estimator.train()
-        start = time.time()
+    # for epoch in tqdm(range(1001), unit='epoch'):
+    #     estimator.train()
+    #     start = time.time()
 
-        losses = torch.stack([
-            step(pipe(theta.float(), x[:,0].float())) #16,6144 3072, 1536 v[:,1, :1536])
-            for theta, x in islice(trainset, 70) #770 20 400 256
-        ]).cpu().numpy()
+    #     losses = torch.stack([
+    #         step(pipe(theta.float(), x[:,0].float())) #16,6144 3072, 1536 v[:,1, :1536])
+    #         for theta, x in islice(trainset, 256) #770 20 400
+    #     ]).cpu().numpy()
 
 
-        end = time.time()
-        estimator.eval()
+    #     end = time.time()
+    #     estimator.eval()
 
-        with torch.no_grad():
-            losses_val = torch.stack([
-                pipe(theta.float(), x[:,0].float())
-                for theta, x in islice(validset, 20) #90 9 50 32
-            ]).cpu().numpy()
+    #     with torch.no_grad():
+    #         losses_val = torch.stack([
+    #             pipe(theta.float(), x[:,0].float())
+    #             for theta, x in islice(validset, 32) #90 9 50
+    #         ]).cpu().numpy()
 
-        run.log({
-            'lr': optimizer.param_groups[0]['lr'],
-            'loss': np.nanmean(losses),
-            'loss_val': np.nanmean(losses_val),
-            'nans': np.isnan(losses).mean(),
-            'nans_val': np.isnan(losses_val).mean(),
-            'speed': len(losses) / (end - start),
-        })
+    #     run.log({
+    #         'lr': optimizer.param_groups[0]['lr'],
+    #         'loss': np.nanmean(losses),
+    #         'loss_val': np.nanmean(losses_val),
+    #         'nans': np.isnan(losses).mean(),
+    #         'nans_val': np.isnan(losses_val).mean(),
+    #         'speed': len(losses) / (end - start),
+    #     })
 
-        scheduler.step(np.nanmean(losses_val))
+    #     scheduler.step(np.nanmean(losses_val))
 
-        runpath = savepath / run.name
-        runpath.mkdir(parents=True, exist_ok=True)
+    #     runpath = savepath / run.name
+    #     runpath.mkdir(parents=True, exist_ok=True)
 
-        if epoch % 50 ==0 : 
-                torch.save({
-                'estimator': estimator.state_dict(),
-                'optimizer': optimizer.state_dict(),
-            # },  runpath / f'states_{epoch}.pth')
-                },  runpath / f'states_{epoch+500}.pth')
+    #     if epoch % 50 ==0 : 
+    #             torch.save({
+    #             'estimator': estimator.state_dict(),
+    #             'optimizer': optimizer.state_dict(),
+    #         # },  runpath / f'states_{epoch}.pth')
+    #             },  runpath / f'states_{epoch+700}.pth')
                 
-        # if optimizer.param_groups[0]['lr'] <= scheduler.min_lrs[0]:
-        #     break
+    #     # if optimizer.param_groups[0]['lr'] <= scheduler.min_lrs[0]:
+    #     #     break
 
-    run.finish()
+    # run.finish()
 
     ####################
-    ## plotting all together after a run
-    # m = ['absurd-totem-101', 'blooming-lake-17', \
-    #     'super-dream-39', 'driven-dream-118']
-    # epochs = [500, 1000, 500, 400]
+    # plotting all together after a run
 
-    # m = [ 'apricot-violet-136-1', 'fiery-field-137-1'] #, 'spring-elevator-13', 'spring-sun-3', 'stoic-snow-3'] #'atomic-pyramid-2','balmy-frost-12', 'charmed-glade-9', 'fluent-gorge-11', 'jolly-salad-8',
-    # epochs = [725, 725]
-    # epoch = epochs[i]
+    m = ['daily-snow-55', 'deep-rain-120', 'fearless-yogurt-72', 'hardy-sun-62', 'honest-lake-119', \
+         'stellar-sea-85', 'sweet-surf-133', 'tough-disco-19', 'wise-pine-57' ]
+    epochs = [400, 200, 500, 400, 400, 500, 400, 700, 100]
+    epoch = epochs[i]
+    runpath = savepath / m[i]
+    runpath.mkdir(parents=True, exist_ok=True)
+    plot = plots(runpath, int(epoch/100) * 100, i)
     ####################
-
-    # runpath = savepath / m[i] #'atomic-energy-10' # 'stellar-brook-134' #'ethereal-donkey-69' #'' #''# #'devout-grass-27' #'amber-eon-17' #'resilient-grass-112' #avid-yogurt-110 'revived-snow-36_rptxx8d0' #'ruby-energy-41_xzxzcc6t'  #dainty-paper-3 morning-silence-4 easy-sun-6
+    
+     #'atomic-energy-10' # 'stellar-brook-134' #'ethereal-donkey-69' #'' #''# #'devout-grass-27' #'amber-eon-17' #'resilient-grass-112' #avid-yogurt-110 'revived-snow-36_rptxx8d0' #'ruby-energy-41_xzxzcc6t'  #dainty-paper-3 morning-silence-4 easy-sun-6
+    
     # runpath = savepath / 'copper-oath-138'
     # runpath.mkdir(parents=True, exist_ok=True)
     # epoch = 1000
 
-    # plot = plots(runpath, int(epoch/25) * 25, i) ########********
+     ########********
     # plot = plots(runpath, int(epoch/50) * 50)
-    plot = plots(runpath, int(epoch+500))
+    # plot = plots(runpath, int(epoch+700))
+
     plot.coverage()
     plot.cornerplot()
     # plot.ptprofile()
@@ -364,15 +372,23 @@ def train(i: int):
 class plots(): 
 
     ######################################################################################################
-    # ## plotting many models after their runs
-    # config= {}
-    # config['embedding'] = ['deep', 'deep']
-    # config['transforms'] = [5,5]
-    # config['noise_scaling'] = [25,25]
+    ## plotting many models after their runs
+    ['daily-snow-55', 'deep-rain-120', 'fearless-yogurt-72', 'hardy-sun-62', 'honest-lake-119', \
+         'stellar-sea-85', 'sweet-surf-133', 'tough-disco-19', 'wise-pine-57' ]
+    config= {}
+    config['embedding'] = ['deep', 'deep', 'deep', 'deep', 'shallow', 'shallow', 'deep', 'deep', 'shallow']
+    config['transforms'] = [5, 7, 7, 5, 7, 3, 7, 7, 5]
+    config['noise_scaling'] = [100,50, 100, 100,200, 100, 200, 200, 200]
+    config['softclip'] = ['no', 'no', 'no', 'no', 'no', 'no', 'no', 'no', 'no']
+    config['array_size'] = [6144, 6144, 6144, 6144, 6144, 6144, 6144, 6144, 6144]
+    # config['hidden_feat'] = [512, 256, 512, 512, 512, 512, 512, 512, 256]
+    # config['hidden_feat_no'] = [5, 3, 5, 7, 3, 7, 7, 7] 
+    # config['activation'] = [nn.ReLU, nn.ELU, nn.ReLU, nn.ELU, nn.ELU, nn.ELU, nn.ReLU, nn.ReLU, nn.ReLU] 
+    # config['bins'] = [4,8]
     ######################################################################################################
 
-    # def __init__(self, runpath, ep, ind):
-    def __init__(self, runpath, ep):
+    def __init__(self, runpath, ep, ind):
+    # def __init__(self, runpath, ep):
         self.runpath = runpath
         self.ep = ep
         
@@ -381,66 +397,86 @@ class plots():
 
         # self.estimator = NPEWithEmbedding().double() 
         ######################################################################################################
-        # self.ind = ind
-        # self.estimator = self.NPEWithEmbedding(self.ind).double() 
+        self.ind = ind
+        self.estimator = self.NPEWithEmbedding(self.ind)#.double() 
         ######################################################################################################
 
         states = torch.load(self.runpath / ('states_' + str(ep) + '.pth'), map_location='cpu')
         self.estimator.load_state_dict(states['estimator'])
         self.estimator.cuda().eval()
 
-        self.x_star =  d.flux*d.flux_scaling
+        self.x_star = d.flux *d.flux_scaling
+
+        if self.config['array_size'][ind] == 6144*2:
+            # print('hereeeeeee')
+            self.x_star = np.hstack(( self.x_star, d.data_wavelengths_norm))
+        
+        # print(np.shape(self.x_star))
 
     ######################################################################################################
-    # ## plotting many models after their runs
-    # def noisy(self, x):
-    #         data_uncertainty = Data().err * Data().flux_scaling*self.config['noise_scaling'][self.ind] #50 is 10% of the median of the means of spectra in the training set.
-    #         x = x + torch.from_numpy(data_uncertainty) * torch.randn_like(x)
-    #         return x
+    ## plotting many models after their runs
+    def noisy(self, x):
+            data_uncertainty = Data().err * Data().flux_scaling*self.config['noise_scaling'][self.ind] #50 is 10% of the median of the means of spectra in the training set.
+            # x = x + torch.from_numpy(data_uncertainty) * torch.randn_like(x)
+            if self.config['array_size'][self.ind] == 6144*2:
+                x[:,0, :] = x[:,0, :] + torch.from_numpy(data_uncertainty) * torch.randn(x[:,0,:].size())
+                x = torch.hstack((x[:, 0, :], x[:,1,:]))
+
+            else: 
+                x = x + torch.from_numpy(data_uncertainty) * torch.randn_like(x)
+            # print(x.size())
+            return x
     
-    # def pipeout(self, theta: Tensor, x: Tensor) -> Tensor:
-    #     x = self.noisy(x)
-    #     theta, x = theta.cuda(), x.cuda()
-    #     return theta, x
+    def pipeout(self, theta: Tensor, x: Tensor) -> Tensor:
+        x = self.noisy(x)
+        theta, x = theta.cuda(), x.cuda()
+        return theta, x
         
 
-    # class NPEWithEmbedding(nn.Module):
-    #     def __init__(self, ind):
-    #         super().__init__()
+    class NPEWithEmbedding(nn.Module):
+        def __init__(self, ind):
+            super().__init__()
 
-    #         # self.embedding = nn.Sequential(
-    #         #     SoftClip(100.0),
-    #         if plots.config['embedding'][ind] == 'shallow':
-    #             self.embedding= ResMLP(
-    #                     6144, 64,
-    #                     hidden_features=[512] * 2 + [256] * 3 + [128] * 5,
-    #                     activation=nn.ELU,
-    #                 )
-    #         else :
-    #             self.embedding= ResMLP(
-    #                     6144, 128,
-    #                     hidden_features=[512] * 3 + [256] * 5 + [128] * 7,
-    #                     activation=nn.ELU,
-    #                 )
+            if plots.config['softclip'][ind] == 'yes':
+                self.embedding = nn.Sequential(
+                                SoftClip(100.0),
+                                ResMLP(
+                                plots.config['array_size'][ind], 128,
+                                hidden_features=[512] * 2 + [256] * 3 + [128] * 5,
+                                activation=nn.ELU,
+                                 ))
+            else: 
+                if plots.config['embedding'][ind] == 'shallow':
+                    self.embedding= ResMLP(
+                            6144, 64,
+                            hidden_features=[512] * 2 + [256] * 3 + [128] * 5,
+                            activation=nn.ELU,
+                        )
+                else :
+                    self.embedding= ResMLP(
+                            6144, 128,
+                            hidden_features=[512] * 3 + [256] * 5 + [128] * 7,
+                            activation=nn.ELU,
+                        )
 
-    #         self.npe = NPE(
-    #             19, self.embedding.out_features, #self.embedding.out_features,
-    #             transforms=plots.config['transforms'][ind],
-    #             build=NSF,
-    #             bins=16,
-    #             hidden_features=[512] * 5,
-    #             activation=nn.ELU,
-    #         )
+            self.npe = NPE(
+                19, self.embedding.out_features, #self.embedding.out_features,
+                transforms=plots.config['transforms'][ind],
+                build=CNF,
+                # bins=plots.config['bins'][ind],
+                # hidden_features= [512]* 5, #plots.config['hidden_feat'][ind] * plots.config['hidden_feat_no'][ind],
+                # activation= nn.ELU #plots.config['activation'][ind],
+            )
         
-    #     def forward(self, theta: Tensor, x: Tensor) -> Tensor:
-    #         y = self.embedding(x)
-    #         if torch.isnan(y).sum()>0:
-    #             print('NaNs in embedding')
-    #         return self.npe(theta, y)
+        def forward(self, theta: Tensor, x: Tensor) -> Tensor:
+            y = self.embedding(x)
+            if torch.isnan(y).sum()>0:
+                print('NaNs in embedding')
+            return self.npe(theta, y)
 
-    #     def flow(self, x: Tensor):  # -> Distribution
-    #         out = self.npe.flow(self.embedding(x)) #.to(torch.double)) #
-    #         return out
+        def flow(self, x: Tensor):  # -> Distribution
+            out = self.npe.flow(self.embedding(x)) #.to(torch.double)) #
+            return out
     ######################################################################################################
 
 
@@ -506,10 +542,16 @@ class plots():
         with torch.no_grad():
             for theta, x in tqdm(islice(testset, 128)):
                 #############################################################################################################
-                # theta, x = self.pipeout(theta, x[:, 0])
+                if plots.config['array_size'][self.ind] == 6144*2:
+                    # print('i was here')
+                    theta, x = self.pipeout(theta, x)
+                   
+                else:
+                    theta, x = self.pipeout(theta, x[:, 0])
+                    # print('here i am')
                 #############################################################################################################
-                theta, x = pipeout(theta, x[:, 0])
-                posterior = self.estimator.flow(x)
+                # theta, x = pipeout(theta, x[:, 0])
+                posterior = self.estimator.flow(x.float())
                 samples = posterior.sample((1024,))
                 log_p = posterior.log_prob(theta)
                 log_p_samples = posterior.log_prob(samples)
@@ -545,7 +587,7 @@ class plots():
     def cornerplot(self):
     #### Corner plot
         
-        self.theta = self.sampling_from_post(torch.from_numpy(self.x_star).cuda(), self.savepath_plots/'theta.csv', only_returning = False) #.float()
+        self.theta = self.sampling_from_post(torch.from_numpy(self.x_star).float().cuda(), self.savepath_plots/'theta.csv', only_returning = False) #.float()
 
         self.theta = torch.Tensor(LOWER) + self.theta * (torch.Tensor(UPPER) - torch.Tensor(LOWER))
 
@@ -586,22 +628,22 @@ class plots():
 #         figure.savefig(self.savepath_plots / 'corner_HSTcorner.pdf')
 
         #######********
-
+        
         fig = corner_mod([self.theta], legend=['NPE'], \
                     color= ['steelblue'] , figsize=(19,19), \
-                domain = (LOWER, UPPER), labels= LABELS)
+                 domain = (LOWER, UPPER),labels= LABELS) #domain = (LOWER, UPPER),
         fig.savefig(self.savepath_plots / 'corner.pdf')
 
-        import corner
-        figure = corner.corner(self.theta[:100000].numpy(),
-#                         hist_bin_factor = 10,
-                        labels= LABELS,
-                        range = [(LOWER, UPPER) for i in range(len(self.theta[0]))],
-#                         quantiles=[0.16, 0.5, 0.84],
-                        show_titles=True,
-                        title_kwargs={"fontsize": 12},
-        )
-        figure.savefig(self.savepath_plots / 'corner_corner.pdf')
+#         import corner
+#         figure = corner.corner(self.theta[:100000].numpy(),
+# #                         hist_bin_factor = 10,
+#                         labels= LABELS,
+#                         range = [(LOWER, UPPER) for i in range(len(self.theta[0]))],
+# #                         quantiles=[0.16, 0.5, 0.84],
+#                         show_titles=True,
+#                         title_kwargs={"fontsize": 12},
+#         )
+#         figure.savefig(self.savepath_plots / 'corner_corner_1.pdf')
 
 ###############################################################################################################
     def ptprofile(self):
