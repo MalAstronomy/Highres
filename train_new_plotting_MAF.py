@@ -54,8 +54,8 @@ from corner_modified import *
 scratch = os.environ.get('SCRATCH', '')
 # scratch = '/users/ricolandman/Research_data/npe_crires/'
 datapath = Path(scratch) / 'highres-sbi/data_fulltheta' #,data_lessthan2e6 data_fulltheta_norm
-# savepath = Path(scratch) / 'highres-sbi/runs/sweep_moree/NSF/'
-savepath = Path(scratch) / 'highres-sbi/runs/imp/MAF/'
+savepath = Path(scratch) / 'highres-sbi/runs/sweep_moreee/MAF/'
+# savepath = Path(scratch) / 'highres-sbi/runs/imp/MAF/'
 
 
 LABELS, LOWER, UPPER = zip(*[
@@ -83,7 +83,36 @@ LABELS, LOWER, UPPER = zip(*[
 # FeH, CO, log_g, T_int, T1, T2, T3, alpha, log_delta, log_Pquench, Fe, fsed, Kzz, sigma_lnorm, iso_rat , 
 # radius, rv, vsini, limb_dark
 
+from parameter import *
+from spectra_simulator import SpectrumMaker
+from ProcessingSpec import ProcessSpec
+from parameter_set_script import param_set, param_list, param_list_ext, param_set_ext, deNormVal
+
+processing = ProcessSpec()
 d = Data()
+
+
+def simulator(values, values_ext):
+    values_actual = deNormVal(values, param_list)
+    sim_res = 2e5
+    dlam = 2.350/sim_res
+    wavelengths = np.arange(2.320, 2.371, dlam)
+    sim = SpectrumMaker(wavelengths=wavelengths, param_set=param_set, lbl_opacity_sampling=2)
+    spectrum = sim(values_actual)
+    spec = np.vstack((np.array(spectrum), wavelengths))
+    
+    values_ext_actual = deNormVal(values_ext, param_list_ext)
+    params_ext = param_set_ext.param_dict(values_ext_actual)
+    
+    th, x = processing(torch.Tensor([values_actual]), torch.Tensor(spec), sample= False, \
+                       values_ext= torch.Tensor([values_ext_actual]))
+    
+    return th, x
+
+##Best fit of different-brook-
+# values = [0.51, 0.59, 0.39, 0.29, 0.15, 0.08, 0.04, 0.44, 0.65, 0.79, 0.44, 0.56, 0.55, 0.42, 0.47] 
+# values_ext = [0.58, 0.52, 0.82,0.53] 
+# _, x = SpecFromVal(values, values_ext)
 
 class SoftClip(nn.Module):
     def __init__(self, bound: float = 1.0):
@@ -233,7 +262,7 @@ def pipeout(theta: Tensor, x: Tensor) -> Tensor:
         return theta, x
    
 
-@job(array=3, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
+@job(array=7, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
 def train(i: int):
 
     # config_dict = {
@@ -343,15 +372,14 @@ def train(i: int):
     ####################
     # plotting all together after a run
 
-    m = [ 'ancient-destroyer-24-1', 'feasible-sound-135', 'glad-paper-136'] #, 'spring-elevator-13', 'spring-sun-3', 'stoic-snow-3'] #'atomic-pyramid-2','balmy-frost-12', 'charmed-glade-9', 'fluent-gorge-11', 'jolly-salad-8',
-    epochs = [3100, 1700, 1150]
+    m = ['blooming-yogurt-146', 'honest-microwave-147', 'zany-bird-148', \
+         'ruby-feather-149', 'peachy-bush-150', 'eager-sea-151', 'amber-wave-152'] 
+    epochs = [2500, 2500, 2500, 2500, 2500, 2500, 2500]
     epoch = epochs[i]
     runpath = savepath / m[i]
     runpath.mkdir(parents=True, exist_ok=True)
     plot = plots(runpath, int(epoch/50) * 50, i)
     ####################
-
-     #'atomic-energy-10' # 'stellar-brook-134' #'ethereal-donkey-69' #'' #''# #'devout-grass-27' #'amber-eon-17' #'resilient-grass-112' #avid-yogurt-110 'revived-snow-36_rptxx8d0' #'ruby-energy-41_xzxzcc6t'  #dainty-paper-3 morning-silence-4 easy-sun-6
     
     # runpath = savepath / 'copper-oath-138'
     # runpath.mkdir(parents=True, exist_ok=True)
@@ -361,7 +389,7 @@ def train(i: int):
     # plot = plots(runpath, int(epoch/50) * 50)
     # plot = plots(runpath, int(epoch+700))
 
-    plot.coverage()
+    # plot.coverage()
     plot.cornerplot()
     # plot.ptprofile()
     # plot.consistencyplot()
@@ -373,11 +401,11 @@ class plots():
     ######################################################################################################
     ## plotting many models after their runs
     config= {}
-    config['embedding'] = ['shallow', 'shallow', 'shallow']
-    config['transforms'] = [3,3,3]
-    config['noise_scaling'] = [160,160, 160]
-    config['softclip'] = ['yes', 'yes', 'no']
-    config['array_size'] = [6144*2, 6144, 6144]
+    config['embedding'] = ['shallow', 'shallow', 'shallow', 'shallow', 'shallow', 'shallow', 'deep'] #, 'shallow', 'shallow']
+    config['transforms'] = [3,3,3, 3,3,3,3] #,3,3]
+    config['noise_scaling'] = [160,160, 160, 160, 160, 160, 160] #,160, 160]
+    config['softclip'] = ['no', 'no', 'no', 'no', 'no', 'no', 'no'] #, 'yes', 'no']
+    config['array_size'] = [6144, 6144, 6144, 6144, 6144, 6144, 6144] #, 6144, 6144]
     # config['bins'] = [4,8]
     ######################################################################################################
 
@@ -386,6 +414,7 @@ class plots():
         self.runpath = runpath
         self.ep = ep
         
+        # self.savepath_plots = self.runpath  / ('plots_' + str(ep))
         self.savepath_plots = self.runpath  / ('plots_' + str(ep)+ '_1')
         self.savepath_plots.mkdir(parents=True, exist_ok=True)
 
@@ -458,8 +487,8 @@ class plots():
                 transforms=plots.config['transforms'][ind],
                 build=MAF,
                 # bins=plots.config['bins'][ind],
-                hidden_features=[512] * 5,
-                activation=nn.ELU,
+                # hidden_features=[512] * 5,
+                # activation=nn.ELU,
             )
         
         def forward(self, theta: Tensor, x: Tensor) -> Tensor:
@@ -555,9 +584,9 @@ class plots():
         ranks = torch.cat(ranks)   
         ranks_numpy = ranks.double().numpy() #convert to Numpy array
         df_ranks = pd.DataFrame(ranks_numpy) #convert to a dataframe
-        df_ranks.to_csv(self.savepath_plots /"ranks_1.csv",index=False) #save to file
+        df_ranks.to_csv(self.savepath_plots /"ranks.csv",index=False) #save to file
 
-        df_ranks = pd.read_csv(self.savepath_plots/"ranks_1.csv")
+        df_ranks = pd.read_csv(self.savepath_plots/"ranks.csv")
         ranks = df_ranks.values
 
         # Coverage
@@ -575,13 +604,13 @@ class plots():
         # plt.grid()
         plt.xticks(fontsize=8)
         plt.yticks(fontsize=8)
-        plt.savefig(self.savepath_plots / 'coverage_1.pdf')    
+        plt.savefig(self.savepath_plots / 'coverage.pdf')    
 
 ###############################################################################################################
     def cornerplot(self):
     #### Corner plot
         
-        self.theta = self.sampling_from_post(torch.from_numpy(self.x_star).float().cuda(), self.savepath_plots/'theta_1.csv', only_returning = False) #.float()
+        self.theta = self.sampling_from_post(torch.from_numpy(self.x_star).float().cuda(), self.savepath_plots/'theta.csv', only_returning = False) #.float()
 
         self.theta = torch.Tensor(LOWER) + self.theta * (torch.Tensor(UPPER) - torch.Tensor(LOWER))
 
@@ -625,8 +654,8 @@ class plots():
         
         fig = corner_mod([self.theta], legend=['NPE'], \
                     color= ['steelblue'] , figsize=(19,19), \
-                 labels= LABELS) #domain = (LOWER, UPPER),
-        fig.savefig(self.savepath_plots / 'corner_1.pdf')
+                 domain = (LOWER, UPPER), labels= LABELS) #
+        fig.savefig(self.savepath_plots / 'corner.pdf')
 
 #         import corner
 #         figure = corner.corner(self.theta[:100000].numpy(),
@@ -731,7 +760,7 @@ class plots():
 ## corner with 14/15 NH3
     def cornerWratio(self):
 
-        self.theta = self.sampling_from_post(torch.from_numpy(self.x_star).cuda(), self.savepath_plots/'theta.csv', only_returning = True) #.float()
+        self.theta = self.sampling_from_post(torch.from_numpy(self.x_star).cuda(), self.savepath_plots/'theta.csv', only_returning = False) #.float()
         
         def ratio(theta):
             N14 = 10**theta[:,16]

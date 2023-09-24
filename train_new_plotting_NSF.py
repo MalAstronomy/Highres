@@ -33,7 +33,7 @@ from zuko.distributions import BoxUniform
 # from parameter import *
 
 from DataProcuring import Data 
-from ProcessingSpec import ProcessSpec
+# from ProcessingSpec import ProcessSpec
 # from Embedding.CNNwithAttention import CNNwithAttention
 from Embedding.MHA import MultiHeadAttentionwithMLP, GPTLanguageModel
 # from Embedding.MLP import MLP 
@@ -54,7 +54,7 @@ scratch = os.environ.get('SCRATCH', '')
 # scratch = '/users/ricolandman/Research_data/npe_crires/'
 datapath = Path(scratch) / 'highres-sbi/data_fulltheta' #, data_fulltheta_norm
 # savepath = Path(scratch) / 'highres-sbi/runs/sweep_moree/NSF/'
-savepath = Path(scratch) / 'highres-sbi/runs/sweep_moree/NSF/'
+savepath = Path(scratch) / 'highres-sbi/runs/sweep/NSF/'
 
 
 LABELS, LOWER, UPPER = zip(*[
@@ -230,7 +230,7 @@ def pipeout(theta: Tensor, x: Tensor) -> Tensor:
         return theta, x
    
 
-@job(array=2, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
+@job(array=4, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
 def train(i: int):
 
     # config_dict = {
@@ -340,8 +340,8 @@ def train(i: int):
     ####################
     # plotting all together after a run
 
-    m = [ 'apricot-violet-136-1', 'fiery-field-137-1'] #, 'spring-elevator-13', 'spring-sun-3', 'stoic-snow-3'] #'atomic-pyramid-2','balmy-frost-12', 'charmed-glade-9', 'fluent-gorge-11', 'jolly-salad-8',
-    epochs = [1700, 1700]
+    m = [ 'fiery-dream-66', 'revived-snow-36', 'azure-eon-32', 'devout-dragon-23'] #, 'spring-elevator-13', 'spring-sun-3', 'stoic-snow-3'] #'atomic-pyramid-2','balmy-frost-12', 'charmed-glade-9', 'fluent-gorge-11', 'jolly-salad-8',
+    epochs = [512, 256, 512, 256]
     epoch = epochs[i]
     runpath = savepath / m[i]
     runpath.mkdir(parents=True, exist_ok=True)
@@ -370,12 +370,12 @@ class plots():
     ######################################################################################################
     ## plotting many models after their runs
     config= {}
-    config['embedding'] = ['deep', 'deep']
-    config['transforms'] = [5,5]
-    config['noise_scaling'] = [25,25]
-    config['softclip'] = ['no', 'no']
+    config['embedding'] = ['shallow', 'deep', 'deep', 'deep']
+    config['transforms'] = [5 ,5, 5, 5]
+    config['noise_scaling'] = [50, 50, 50, 50]
+    config['softclip'] = ['no', 'no', 'no', 'no']
 
-    config['bins'] = [4,8]
+    config['bins'] = [16,16, 16, 16]
     ######################################################################################################
 
     def __init__(self, runpath, ep, ind):
@@ -392,7 +392,8 @@ class plots():
         self.estimator = self.NPEWithEmbedding(self.ind).double() 
         ######################################################################################################
 
-        states = torch.load(self.runpath / ('states_' + str(ep) + '.pth'), map_location='cpu')
+        # states = torch.load(self.runpath / ('states_' + str(ep) + '.pth'), map_location='cpu')
+        states = torch.load(self.runpath / ('weights.pth'), map_location='cpu')
         self.estimator.load_state_dict(states['estimator'])
         self.estimator.cuda().eval()
 
@@ -438,7 +439,7 @@ class plots():
                         )
 
             self.npe = NPE(
-                19, 128, #self.embedding.out_features, #self.embedding.out_features,
+                19, self.embedding.out_features, #self.embedding.out_features,
                 transforms=plots.config['transforms'][ind],
                 build=NSF,
                 bins=plots.config['bins'][ind],

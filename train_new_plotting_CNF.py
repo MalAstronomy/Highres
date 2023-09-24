@@ -233,7 +233,7 @@ def pipeout(theta: Tensor, x: Tensor) -> Tensor:
         return theta, x
    
 
-@job(array=1, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
+@job(array=2, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
 def train(i: int):
 
     # config_dict = {
@@ -343,9 +343,9 @@ def train(i: int):
     ####################
     # plotting all together after a run
 
-    m = ['daily-snow-55', 'deep-rain-120', 'fearless-yogurt-72', 'hardy-sun-62', 'honest-lake-119', \
-         'stellar-sea-85', 'sweet-surf-133', 'tough-disco-19', 'wise-pine-57' ]
-    epochs = [400, 200, 500, 400, 400, 500, 400, 700, 100]
+    m = ['fearless-yogurt-72-1', 'tough-disco-19'] #, 'wise-pine-57' ] #'daily-snow-55', 'deep-rain-120', 'hardy-sun-62', 'honest-lake-119', 'stellar-sea-85', 'sweet-surf-133'
+         
+    epochs = [600, 800]
     epoch = epochs[i]
     runpath = savepath / m[i]
     runpath.mkdir(parents=True, exist_ok=True)
@@ -373,14 +373,14 @@ class plots():
 
     ######################################################################################################
     ## plotting many models after their runs
-    ['daily-snow-55', 'deep-rain-120', 'fearless-yogurt-72', 'hardy-sun-62', 'honest-lake-119', \
-         'stellar-sea-85', 'sweet-surf-133', 'tough-disco-19', 'wise-pine-57' ]
+    # ['daily-snow-55', 'deep-rain-120', 'fearless-yogurt-72', 'hardy-sun-62', 'honest-lake-119', \
+    #      'stellar-sea-85', 'sweet-surf-133', 'tough-disco-19', 'wise-pine-57' ]
     config= {}
-    config['embedding'] = ['deep', 'deep', 'deep', 'deep', 'shallow', 'shallow', 'deep', 'deep', 'shallow']
-    config['transforms'] = [5, 7, 7, 5, 7, 3, 7, 7, 5]
-    config['noise_scaling'] = [100,50, 100, 100,200, 100, 200, 200, 200]
-    config['softclip'] = ['no', 'no', 'no', 'no', 'no', 'no', 'no', 'no', 'no']
-    config['array_size'] = [6144, 6144, 6144, 6144, 6144, 6144, 6144, 6144, 6144]
+    config['embedding'] = ['deep', 'deep'] #, 'deep', 'deep', 'shallow', 'shallow', 'deep', 'deep', 'shallow']
+    config['transforms'] = [7, 7 ] #, 7, 5, 7, 3, 7, 7, 5]
+    config['noise_scaling'] = [100,200 ] #, 100, 100,200, 100, 200, 200, 200]
+    config['softclip'] = ['no', 'no'] #'no', 'no', 'no', 'no', 'no', 'no', 'no']
+    config['array_size'] = [6144, 6144 ] #, 6144, 6144, 6144, 6144, 6144, 6144, 6144]
     # config['hidden_feat'] = [512, 256, 512, 512, 512, 512, 512, 512, 256]
     # config['hidden_feat_no'] = [5, 3, 5, 7, 3, 7, 7, 7] 
     # config['activation'] = [nn.ReLU, nn.ELU, nn.ReLU, nn.ELU, nn.ELU, nn.ELU, nn.ReLU, nn.ReLU, nn.ReLU] 

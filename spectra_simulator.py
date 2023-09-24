@@ -69,6 +69,7 @@ class SpectrumMaker():
         self.prt_press = self.atmosphere.press
 
     def __call__(self, param_arr):
+
         param_dict = self.param_set.param_dict(param_arr)
         return self.get_spectrum(param_dict)
 
@@ -114,7 +115,11 @@ class SpectrumMaker():
         flux = self.atmosphere.flux * u.erg/u.cm**2/u.s/u.Hz
         flux = flux *const.c/(wl*u.micron)**2
         flux = flux.to(u.W/u.m**2/u.micron)
-        spec = Spectrum(flux, wl).at(self.wavelengths)
+        wl_8 = np.round(wl,8)
+        # print(np.round(wl,8), self.wavelengths)
+        spec = np.interp(self.wavelengths, wl, flux)
+        # spec = flux[wl_8 == self.wavelengths]  
+        # spec = spectrum(flux, wl).at(self.wavelengths)
         '''
         waves_even = np.linspace(np.min(wl), np.max(wl), wl.size)
         spec = fastRotBroad(waves_even, spec.at(waves_even), params['limb_dark'], params['vsini'])
