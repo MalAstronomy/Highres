@@ -26,7 +26,7 @@ def corner_mod(theta, legend=['NPE', 'NS'], color= ['steelblue', 'orange'] , fig
         fig = corner(
                 th,
                 smooth=2,
-                # domain = domain,
+                domain = domain,
                 labels= labels,
                 figsize= figsize,
                 creds= [0.997, 0.955, 0.683], 

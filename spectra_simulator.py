@@ -21,6 +21,7 @@ def abundances(press, temp, feh, C_O, P_quench=None):
     return mass_fractions
 
 def make_pt(params, pressures):
+    # print(params['T3'], params['log_delta'], params['alpha'])
     temp_arr = np.array([params['T3'],params['T2'],params['T1']])
 
     #delta = 10**params['log_delta']

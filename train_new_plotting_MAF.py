@@ -34,6 +34,7 @@ from zuko.distributions import BoxUniform
 # from parameter import *
 
 from DataProcuring import Data 
+from pt_plotting import levels_and_creds
 # from ProcessingSpec import ProcessSpec
 # from Embedding.CNNwithAttention import CNNwithAttention
 from Embedding.MHA import MultiHeadAttentionwithMLP, GPTLanguageModel
@@ -48,8 +49,13 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 # from Embedding.SelfAttention import SelfAttention
 # import Embedding.CNN as CNN
 from corner_modified import *
-# from pt_plotting import *
+from pt_plotting import *
 # import corner
+
+from parameter import *
+from spectra_simulator import SpectrumMaker
+from parameter_set_script import param_set, param_list, param_list_ext, param_set_ext, deNormVal
+
 
 scratch = os.environ.get('SCRATCH', '')
 # scratch = '/users/ricolandman/Research_data/npe_crires/'
@@ -92,7 +98,10 @@ processing = ProcessSpec()
 d = Data()
 
 
-def simulator(values, values_ext):
+def simulator(theta):
+    values = theta[:-4].numpy()
+    values_ext = theta[-4:].numpy()
+    print(values, values_ext)
     values_actual = deNormVal(values, param_list)
     sim_res = 2e5
     dlam = 2.350/sim_res
@@ -102,7 +111,7 @@ def simulator(values, values_ext):
     spec = np.vstack((np.array(spectrum), wavelengths))
     
     values_ext_actual = deNormVal(values_ext, param_list_ext)
-    params_ext = param_set_ext.param_dict(values_ext_actual)
+    # params_ext = param_set_ext.param_dict(values_ext_actual)
     
     th, x = processing(torch.Tensor([values_actual]), torch.Tensor(spec), sample= False, \
                        values_ext= torch.Tensor([values_ext_actual]))
@@ -262,7 +271,7 @@ def pipeout(theta: Tensor, x: Tensor) -> Tensor:
         return theta, x
    
 
-@job(array=7, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
+@job(array=1, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
 def train(i: int):
 
     # config_dict = {
@@ -372,9 +381,11 @@ def train(i: int):
     ####################
     # plotting all together after a run
 
-    m = ['blooming-yogurt-146', 'honest-microwave-147', 'zany-bird-148', \
-         'ruby-feather-149', 'peachy-bush-150', 'eager-sea-151', 'amber-wave-152'] 
-    epochs = [2500, 2500, 2500, 2500, 2500, 2500, 2500]
+    # m = ['blooming-yogurt-146', 'honest-microwave-147', 'zany-bird-148', \
+    #      'ruby-feather-149', 'peachy-bush-150', 'eager-sea-151', 'amber-wave-152'] 
+    m = ['autumn-cherry-157']
+    # epochs = [2500, 2500, 2500, 2500, 2500, 2500, 2500]
+    epochs = [1250]
     epoch = epochs[i]
     runpath = savepath / m[i]
     runpath.mkdir(parents=True, exist_ok=True)
@@ -390,9 +401,9 @@ def train(i: int):
     # plot = plots(runpath, int(epoch+700))
 
     # plot.coverage()
-    plot.cornerplot()
+    # plot.cornerplot()
     # plot.ptprofile()
-    # plot.consistencyplot()
+    plot.consistencyplot()
     # plot.cornerWratio()
 
 
@@ -401,11 +412,11 @@ class plots():
     ######################################################################################################
     ## plotting many models after their runs
     config= {}
-    config['embedding'] = ['shallow', 'shallow', 'shallow', 'shallow', 'shallow', 'shallow', 'deep'] #, 'shallow', 'shallow']
-    config['transforms'] = [3,3,3, 3,3,3,3] #,3,3]
-    config['noise_scaling'] = [160,160, 160, 160, 160, 160, 160] #,160, 160]
-    config['softclip'] = ['no', 'no', 'no', 'no', 'no', 'no', 'no'] #, 'yes', 'no']
-    config['array_size'] = [6144, 6144, 6144, 6144, 6144, 6144, 6144] #, 6144, 6144]
+    config['embedding'] = ['deep'] #, 'shallow', 'shallow', 'shallow', 'shallow', 'shallow', 'deep'] #, 'shallow', 'shallow']
+    config['transforms'] = [3] #,3,3, 3,3,3,3] #,3,3]
+    config['noise_scaling'] = [1] #,160, 160, 160, 160, 160, 160] #,160, 160]
+    config['softclip'] = ['no'] #, 'no', 'no', 'no', 'no', 'no', 'no'] #, 'yes', 'no']
+    config['array_size'] = [6144] #, 6144, 6144, 6144, 6144, 6144, 6144] #, 6144, 6144]
     # config['bins'] = [4,8]
     ######################################################################################################
 
@@ -555,6 +566,10 @@ class plots():
             theta = df_theta.values
             return torch.from_numpy(theta)
 
+    def filter_limbdark_mask(self, theta):
+        mask = theta[:,-1]<0
+        mask += theta[:,-1]>1
+        return mask #theta[~mask]
 
     def coverage(self): 
         ####### Coverage 
@@ -670,6 +685,12 @@ class plots():
 
 ###############################################################################################################
     def ptprofile(self):
+
+        self.theta = self.sampling_from_post(torch.from_numpy(self.x_star).float().cuda(), self.savepath_plots/'theta.csv', only_returning = True) #.float()
+        theta_scaledback = torch.Tensor(LOWER) + self.theta * (torch.Tensor(UPPER) - torch.Tensor(LOWER))
+        mask = self.filter_limbdark_mask(theta_scaledback)
+        self.theta = self.theta[~mask]
+
     # PT profile
         # pt_paul=pd.read_csv('/home/mvasist/WISEJ1828/WISEJ1828/4/best_fit_PT.dat',sep=" ",header=0)
         fig, ax = plt.subplots(figsize=(4,4))
@@ -683,6 +704,10 @@ class plots():
 ###############################################################################################################
     def consistencyplot(self):
     ## Consistency check
+        self.theta = self.sampling_from_post(torch.from_numpy(self.x_star).float().cuda(), self.savepath_plots/'theta.csv', only_returning = True) #.float()
+        theta_scaledback = torch.Tensor(LOWER) + self.theta * (torch.Tensor(UPPER) - torch.Tensor(LOWER))
+        mask = self.filter_limbdark_mask(theta_scaledback)
+        self.theta = self.theta[~mask]
 
         def sim_spectra(theta, theta_name, x_name, only_returning = True, noisy = True):
             if not only_returning:
@@ -691,10 +716,10 @@ class plots():
                 mask1 = ~np.isinf(x[mask]).any(axis=-1)
                 theta, x = theta[mask][mask1], x[mask][mask1]
                 x = torch.from_numpy(x)
-                x = x[:,87:1385]
+                # x = x[:,87:1385]
 
                 if noisy :
-                    x = noisybfactor(x)
+                    x = self.noisy(x)
 
                 ## to save
                 df_theta = pd.DataFrame(theta) #convert to a dataframe

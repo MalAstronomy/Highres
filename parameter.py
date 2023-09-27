@@ -38,6 +38,16 @@ class ParameterSet():
             params[param.name] = val
         return params
 
+    def param_dict_append(self, val):
+        params = {}
+        for param in self.parameters:
+            params[param.name] = np.array([])
+        for va in val:
+            for param, v in zip(self.parameters, va):
+                params[param.name] = np.append(params[param.name], v)
+        return params
+    
+
     @property
     def N_params(self):
         return len(self.parameters)
