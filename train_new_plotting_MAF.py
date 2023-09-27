@@ -101,7 +101,7 @@ d = Data()
 def simulator(theta):
     values = theta[:-4].numpy()
     values_ext = theta[-4:].numpy()
-    print(values, values_ext)
+    # print(values, values_ext)
     values_actual = deNormVal(values, param_list)
     sim_res = 2e5
     dlam = 2.350/sim_res
@@ -115,8 +115,9 @@ def simulator(theta):
     
     th, x = processing(torch.Tensor([values_actual]), torch.Tensor(spec), sample= False, \
                        values_ext= torch.Tensor([values_ext_actual]))
+    # print(np.shape(x))
     
-    return th, x
+    return x.squeeze()
 
 ##Best fit of different-brook-
 # values = [0.51, 0.59, 0.39, 0.29, 0.15, 0.08, 0.04, 0.44, 0.65, 0.79, 0.44, 0.56, 0.55, 0.42, 0.47] 
@@ -445,6 +446,8 @@ class plots():
             # print('hereeeeeee')
             self.x_star = np.hstack(( self.x_star, d.data_wavelengths_norm))
         
+        self.wlength = d.data_wavelengths
+        
         # print(np.shape(self.x_star))
 
     ######################################################################################################
@@ -712,11 +715,15 @@ class plots():
         def sim_spectra(theta, theta_name, x_name, only_returning = True, noisy = True):
             if not only_returning:
                 x = np.stack([simulator(t) for t in tqdm(theta)])
+                # print(np.shape(x))
+                x = x[:,0]
+                # print(np.shape(x))
                 mask = ~np.isnan(x).any(axis=-1)
                 mask1 = ~np.isinf(x[mask]).any(axis=-1)
                 theta, x = theta[mask][mask1], x[mask][mask1]
                 x = torch.from_numpy(x)
                 # x = x[:,87:1385]
+                # print(np.shape(x))
 
                 if noisy :
                     x = self.noisy(x)
@@ -735,8 +742,8 @@ class plots():
             x = df_x.values
             return torch.from_numpy(theta), torch.from_numpy(x)
 
-        theta_256_noisy, x_256_noisy = sim_spectra(self.theta[:2**9], self.savepath_plots /"theta_256_noisy.csv", self.savepath_plots /"x_256_noisy.csv", only_returning = False, noisy = True)
-        theta_256, x_256 = sim_spectra(self.theta[:2**9], self.savepath_plots /"theta_256.csv", self.savepath_plots /"x_256.csv", only_returning = False, noisy = False)
+        theta_256_noisy, x_256_noisy = sim_spectra(self.theta[:2**9], self.savepath_plots /"theta_256_noisy.csv", self.savepath_plots /"x_256_noisy.csv", only_returning = True, noisy = True)
+        theta_256, x_256 = sim_spectra(self.theta[:2**9], self.savepath_plots /"theta_256.csv", self.savepath_plots /"x_256.csv", only_returning = True, noisy = False)
 
 
         fig, (ax1, ax2) = plt.subplots(2, figsize=(10,7), gridspec_kw={'height_ratios': [3, 1]})
@@ -767,7 +774,7 @@ class plots():
         ax1.legend(handles, texts, prop = {'size': 8}, bbox_to_anchor=(1,1))
         # ax1.grid()
 
-        residuals = (x_256 - self.x_star) / (simulator.sigma * simulator.scale)
+        residuals = (x_256 - self.x_star) / (d.err*d.flux_scaling)
 
         for q, l in zip(creds[:-1], levels):
             #     cls = tuple(mcolors.to_rgba(mcolors.CSS4_COLORS[cc[i]])[:3])
