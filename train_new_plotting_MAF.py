@@ -26,7 +26,7 @@ from lampe.data import H5Dataset
 from lampe.inference import NPE, NPELoss
 from lampe.nn import ResMLP
 from lampe.utils import GDStep
-from lampe.plots import corner
+from lampe.plots import corner, mark_point
 
 from zuko.flows import NAF, MAF, NSF, NCSF, CNF
 from zuko.distributions import BoxUniform
@@ -114,7 +114,7 @@ def simulator(theta):
     # params_ext = param_set_ext.param_dict(values_ext_actual)
     
     th, x = processing(torch.Tensor([values_actual]), torch.Tensor(spec), sample= False, \
-                       values_ext= torch.Tensor([values_ext_actual]))
+                       values_ext_actual= torch.Tensor([values_ext_actual]))
     # print(np.shape(x))
     
     return x.squeeze()
@@ -272,7 +272,7 @@ def pipeout(theta: Tensor, x: Tensor) -> Tensor:
         return theta, x
    
 
-@job(array=1, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
+@job(array=3, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
 def train(i: int):
 
     # config_dict = {
@@ -384,9 +384,10 @@ def train(i: int):
 
     # m = ['blooming-yogurt-146', 'honest-microwave-147', 'zany-bird-148', \
     #      'ruby-feather-149', 'peachy-bush-150', 'eager-sea-151', 'amber-wave-152'] 
-    m = ['autumn-cherry-157']
+    m = ['celestial-frog-159', 'faithful-planet-160', 'earthy-sun-162' ] #\ #'autumn-cherry-157', 'ethereal-sponge-161'
+         #['autumn-cherry-157']
     # epochs = [2500, 2500, 2500, 2500, 2500, 2500, 2500]
-    epochs = [1250]
+    epochs = [550, 550, 550] #, 400, 400] #[1600]
     epoch = epochs[i]
     runpath = savepath / m[i]
     runpath.mkdir(parents=True, exist_ok=True)
@@ -401,9 +402,9 @@ def train(i: int):
     # plot = plots(runpath, int(epoch/50) * 50)
     # plot = plots(runpath, int(epoch+700))
 
-    # plot.coverage()
-    # plot.cornerplot()
-    # plot.ptprofile()
+    plot.coverage()
+    plot.cornerplot()
+    plot.ptprofile()
     plot.consistencyplot()
     # plot.cornerWratio()
 
@@ -413,11 +414,11 @@ class plots():
     ######################################################################################################
     ## plotting many models after their runs
     config= {}
-    config['embedding'] = ['deep'] #, 'shallow', 'shallow', 'shallow', 'shallow', 'shallow', 'deep'] #, 'shallow', 'shallow']
-    config['transforms'] = [3] #,3,3, 3,3,3,3] #,3,3]
-    config['noise_scaling'] = [1] #,160, 160, 160, 160, 160, 160] #,160, 160]
-    config['softclip'] = ['no'] #, 'no', 'no', 'no', 'no', 'no', 'no'] #, 'yes', 'no']
-    config['array_size'] = [6144] #, 6144, 6144, 6144, 6144, 6144, 6144] #, 6144, 6144]
+    config['embedding'] = ['deep', 'deep', 'deep'] #, 'deep', 'deep'] #, 'shallow', 'shallow', 'shallow', 'shallow', 'shallow', 'deep'] #, 'shallow', 'shallow']
+    config['transforms'] = [3,3, 3] #,3,3] #,3,3, 3,3,3,3] #,3,3]
+    config['noise_scaling'] = [10, 5, 3] #, 2, 3]#[1] #,160, 160, 160, 160, 160, 160] #,160, 160]
+    config['softclip'] = ['no', 'no', 'no'] #, 'no', 'no'] #, 'no', 'no', 'no', 'no', 'no', 'no'] #, 'yes', 'no']
+    config['array_size'] = [6144, 6144, 6144] #, 6144, 6144] #, 6144, 6144, 6144, 6144, 6144, 6144] #, 6144, 6144]
     # config['bins'] = [4,8]
     ######################################################################################################
 
@@ -426,8 +427,8 @@ class plots():
         self.runpath = runpath
         self.ep = ep
         
-        # self.savepath_plots = self.runpath  / ('plots_' + str(ep))
-        self.savepath_plots = self.runpath  / ('plots_' + str(ep)+ '_1')
+        self.savepath_plots = self.runpath  / ('plots_sim_b_' + str(ep))
+        # self.savepath_plots = self.runpath  / ('plots_' + str(ep)+ '_1')
         self.savepath_plots.mkdir(parents=True, exist_ok=True)
 
         # self.estimator = NPEWithEmbedding().double() 
@@ -440,7 +441,11 @@ class plots():
         self.estimator.load_state_dict(states['estimator'])
         self.estimator.cuda().eval()
 
-        self.x_star = d.flux *d.flux_scaling
+        # self.x_star = d.flux *d.flux_scaling
+        # self.x_star = self.noisy(torch.Tensor(np.loadtxt('x_sim_d.npy'))[0]) 
+        # self.theta_star = torch.Tensor(np.loadtxt('theta_sim_d.npy')) 
+        self.x_star =  self.noisy(torch.Tensor(np.loadtxt('x_sim_b.npy'))[0])
+        self.theta_star = torch.Tensor(np.loadtxt('theta_sim_b.npy'))
 
         if self.config['array_size'][ind] == 6144*2:
             # print('hereeeeeee')
@@ -628,7 +633,7 @@ class plots():
     def cornerplot(self):
     #### Corner plot
         
-        self.theta = self.sampling_from_post(torch.from_numpy(self.x_star).float().cuda(), self.savepath_plots/'theta.csv', only_returning = False) #.float()
+        self.theta = self.sampling_from_post(self.x_star.float().cuda(), self.savepath_plots/'theta.csv', only_returning = False) #.float()
 
         self.theta = torch.Tensor(LOWER) + self.theta * (torch.Tensor(UPPER) - torch.Tensor(LOWER))
 
@@ -673,6 +678,7 @@ class plots():
         fig = corner_mod([self.theta], legend=['NPE'], \
                     color= ['steelblue'] , figsize=(19,19), \
                  domain = (LOWER, UPPER), labels= LABELS) #
+        mark_point(fig, torch.Tensor(LOWER) + self.theta_star * (torch.Tensor(UPPER) - torch.Tensor(LOWER)), color='black')
         fig.savefig(self.savepath_plots / 'corner.pdf')
 
 #         import corner
@@ -689,15 +695,24 @@ class plots():
 ###############################################################################################################
     def ptprofile(self):
 
-        self.theta = self.sampling_from_post(torch.from_numpy(self.x_star).float().cuda(), self.savepath_plots/'theta.csv', only_returning = True) #.float()
-        theta_scaledback = torch.Tensor(LOWER) + self.theta * (torch.Tensor(UPPER) - torch.Tensor(LOWER))
-        mask = self.filter_limbdark_mask(theta_scaledback)
+        self.theta = self.sampling_from_post(self.x_star.float().cuda(), self.savepath_plots/'theta.csv', only_returning = True) #.float()
+        theta_scaledbackup = torch.Tensor(LOWER) + self.theta * (torch.Tensor(UPPER) - torch.Tensor(LOWER))
+        mask = self.filter_limbdark_mask(theta_scaledbackup)
         self.theta = self.theta[~mask]
+
+        ###sim PT
+        simul = SpectrumMaker(wavelengths, param_set)
+        pressures = simul.atmosphere.press / 1e6
+        val_act = deNormVal(self.theta_star.numpy(), param_list)
+        params = param_set.param_dict(val_act)
+        temp= make_pt(params , pressures)
+        ###sim PT
+
 
     # PT profile
         # pt_paul=pd.read_csv('/home/mvasist/WISEJ1828/WISEJ1828/4/best_fit_PT.dat',sep=" ",header=0)
         fig, ax = plt.subplots(figsize=(4,4))
-
+        ax.plot(temp, pressures, color = 'black')  ##sim
         # ax.plot(pt_paul.iloc[:,1].values, pt_paul.iloc[:,0].values, color = 'orange')
         fig_pt = PT_plot(fig, ax, self.theta[:2**8], invert = True) #, self.theta_star)
         # fig_pt = PT_plot(fig_pt, ax, self.theta_paul[:2**8], invert = True, color = 'orange') #, theta_star)
@@ -707,7 +722,7 @@ class plots():
 ###############################################################################################################
     def consistencyplot(self):
     ## Consistency check
-        self.theta = self.sampling_from_post(torch.from_numpy(self.x_star).float().cuda(), self.savepath_plots/'theta.csv', only_returning = True) #.float()
+        self.theta = self.sampling_from_post(self.x_star.float().cuda(), self.savepath_plots/'theta.csv', only_returning = True) #.float()
         theta_scaledback = torch.Tensor(LOWER) + self.theta * (torch.Tensor(UPPER) - torch.Tensor(LOWER))
         mask = self.filter_limbdark_mask(theta_scaledback)
         self.theta = self.theta[~mask]
@@ -742,8 +757,8 @@ class plots():
             x = df_x.values
             return torch.from_numpy(theta), torch.from_numpy(x)
 
-        theta_256_noisy, x_256_noisy = sim_spectra(self.theta[:2**9], self.savepath_plots /"theta_256_noisy.csv", self.savepath_plots /"x_256_noisy.csv", only_returning = True, noisy = True)
-        theta_256, x_256 = sim_spectra(self.theta[:2**9], self.savepath_plots /"theta_256.csv", self.savepath_plots /"x_256.csv", only_returning = True, noisy = False)
+        theta_256_noisy, x_256_noisy = sim_spectra(self.theta[:2**9], self.savepath_plots /"theta_256_noisy.csv", self.savepath_plots /"x_256_noisy.csv", only_returning = False, noisy = True)
+        theta_256, x_256 = sim_spectra(self.theta[:2**9], self.savepath_plots /"theta_256.csv", self.savepath_plots /"x_256.csv", only_returning = False, noisy = False)
 
 
         fig, (ax1, ax2) = plt.subplots(2, figsize=(10,7), gridspec_kw={'height_ratios': [3, 1]})
@@ -756,7 +771,7 @@ class plots():
 
         for q, l in zip(creds[:-1], levels):
         #     cls = tuple(mcolors.to_rgba(mcolors.CSS4_COLORS[cc[i]])[:3])
-            lower, upper = np.quantile(x_256.numpy(), [0.5 - q / 2, 0.5 + q / 2], axis=0)
+            lower, upper = np.quantile(x_256_noisy.numpy(), [0.5 - q / 2, 0.5 + q / 2], axis=0)
             ax1.fill_between(self.wlength, lower, upper, color= cmap(l), linewidth=0) #'C0', alpha=0.4,
 
         lines = ax1.plot(self.wlength, self.x_star, color='black', label = r'$ f(\theta_{obs})$', linewidth = 0.4)
@@ -774,7 +789,7 @@ class plots():
         ax1.legend(handles, texts, prop = {'size': 8}, bbox_to_anchor=(1,1))
         # ax1.grid()
 
-        residuals = (x_256 - self.x_star) / (d.err*d.flux_scaling)
+        residuals = (x_256_noisy - self.x_star) / torch.Tensor(d.err*d.flux_scaling*self.config['noise_scaling'][self.ind])
 
         for q, l in zip(creds[:-1], levels):
             #     cls = tuple(mcolors.to_rgba(mcolors.CSS4_COLORS[cc[i]])[:3])
@@ -786,7 +801,7 @@ class plots():
         # ax2.set_ylim(-5,5)
         # ax2.set_xticklabels(np.round(np.arange(0.8, 2.6, 0.2),1),fontsize=8) 
         # ax2.grid()
-        fig.savefig(self.savepath_plots / 'consistency.pdf')
+        fig.savefig(self.savepath_plots / 'consistency_noisy.pdf')
 ###############################################################################################################
 
 ## corner with 14/15 NH3
