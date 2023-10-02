@@ -12,9 +12,9 @@ class ProcessSpec():
     flux_scaling = d.flux_scaling
     data_wavelengths_norm = d.data_wavelengths_norm
     
-    def __call__(self, theta, x, sample= True, values_ext= [[0,0,0,0]]):
+    def __call__(self, theta, x, sample= True, values_ext_actual= [[0,0,0,0]]):
         self.sample = sample
-        self.values_ext = values_ext
+        self.values_ext_actual = values_ext_actual
         self.theta = theta
         self.x = x
         self.param_set_ext, self.theta_ext = self.params_ext()  #external param set, one batch of theta ext
@@ -28,10 +28,10 @@ class ProcessSpec():
         # Define additional parameters
         
         # Generate theta_ext
-        if self.sample == True:
+        if self.sample:
             theta_ext = param_set_ext.sample(batch_size)
         else: 
-            theta_ext = self.values_ext
+            theta_ext = self.values_ext_actual
         return param_set_ext, theta_ext
         
     def process_x(self):

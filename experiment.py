@@ -25,14 +25,18 @@ from zuko.distributions import BoxUniform
 from lampe.inference import NPE, NPELoss
 from lampe.nn import ResMLP
 from zuko.flows import NAF, NSF, MAF, NCSF, SOSPF, UNAF, CNF 
-from lampe.plots import nice_rc, corner, coverage_plot
+from lampe.plots import nice_rc, corner, coverage_plot, mark_point
 from lampe.utils import GDStep
 
 from DataProcuring import Data 
+from ProcessingSpec import ProcessSpec
 # from spectra_simulator import Simulator, LOWER, UPPER
 # from AverageEstimator import avgestimator
-# from corner_modified import *
-# from pt_plotting import *
+from corner_modified import *
+from pt_plotting import *
+from parameter import *
+from spectra_simulator import SpectrumMaker
+from parameter_set_script import param_set, param_list, param_list_ext, param_set_ext, deNormVal
 
 
 # from ees import Simulator, LOWER, UPPER, LABELS, pt_profile
@@ -60,35 +64,58 @@ LABELS, LOWER, UPPER = zip(*[
 
 scratch = os.environ['SCRATCH']
 datapath = Path(scratch) / 'highres-sbi/data_fulltheta'
-savepath = Path(scratch) / 'highres-sbi/runs/sweep_moree'
+savepath = Path(scratch) / 'highres-sbi/runs/sweep_lessnoisy'
+
+processing = ProcessSpec()
+
+def simulator(theta):
+    values = theta[:-4].numpy()
+    values_ext = theta[-4:].numpy()
+    # print(values, values_ext)
+    values_actual = deNormVal(values, param_list)
+    sim_res = 2e5
+    dlam = 2.350/sim_res
+    wavelengths = np.arange(2.320, 2.371, dlam)
+    sim = SpectrumMaker(wavelengths=wavelengths, param_set=param_set, lbl_opacity_sampling=2)
+    spectrum = sim(values_actual)
+    spec = np.vstack((np.array(spectrum), wavelengths))
+    
+    values_ext_actual = deNormVal(values_ext, param_list_ext)
+    # params_ext = param_set_ext.param_dict(values_ext_actual)
+    
+    th, x = processing(torch.Tensor([values_actual]), torch.Tensor(spec), sample= False, \
+                       values_ext_actual= torch.Tensor([values_ext_actual]))
+    # print(np.shape(x))
+    
+    return x.squeeze()
 
 
 CONFIGS = {
     'embedding': ['shallow', 'deep'],
-    'flow': ['MAF', 'NCSF', 'SOSPF', 'UNAF', 'CNF'], #'NAF', 
-    'transforms': [3, 5, 7], #3, 
-    'signal': [16, 32],  # not important- the autoregression network output , 32
+    'flow': ['MAF'],  #, 'NCSF', 'SOSPF', 'UNAF', 'CNF'], #'NAF', 
+    'transforms': [3, 5, 7], #, 7], #3, 
+    # 'signal': [16, 32],  # not important- the autoregression network output , 32
     'hidden_features': [256, 512], # hidden layers of the autoregression network , 256, 
     'hidden_features_no' : [3,5,7], 
-    'activation': [nn.ELU, nn.ReLU],
+    'activation': [nn.ELU], #, nn.ReLU],
     'optimizer': ['AdamW'],
     'init_lr':  [1e-3, 5e-4, 1e-4, 1e-5], #[5e-4, 1e-5]
     'weight_decay': [0, 1e-4, 1e-3, 1e-2], #[1e-4], #
     'scheduler': ['ReduceLROnPlateau'], #, 'CosineAnnealingLR'],
     'min_lr': [1e-5, 1e-6], # 1e-6
-    'patience': [8, 16, 32], #8
-    'epochs': [512, 1024],
+    'patience': [16, 32], #8
+    'epochs': [2001],
     'stop_criterion': ['early'], #, 'late'],
     'batch_size':  [256, 512, 1024, 2048],
     'spectral_length' : [6144], #[1536, 3072, 6144]
     'factor' : [0.7, 0.5, 0.3], 
-    'noise_scaling' : [25, 50, 100, 200], 
-    'SOSF_degree' : [2,3,4],
-    'SOSF_poly' : [2,4,6],
+    'noise_scaling' : [1, 2, 5, 10], 
+    # 'SOSF_degree' : [2,3,4],
+    # 'SOSF_poly' : [2,4,6],
 }
 
 
-@job(array=2**7, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
+@job(array=2**2, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
 def experiment(index: int) -> None:
     # Config
     config = {
@@ -96,10 +123,8 @@ def experiment(index: int) -> None:
         for key, values in CONFIGS.items()
     }
     
-    run = wandb.init(project='highres--sweep-moreee', config=config)
-    
-    # Simulator
-    # simulator = Simulator(noisy=False)
+    run = wandb.init(project='highres--sweep-lessnoisy_trial', config=config)
+
     
     def noisy(x: Tensor) -> Tensor:
         data_uncertainty = Data().err * Data().flux_scaling*config['noise_scaling'] #50 is 10% of the median of the means of spectra in the training set.
@@ -135,8 +160,8 @@ def experiment(index: int) -> None:
                     transforms=config['transforms'],
                     build=MAF,
                     # bins=config['signal'],
-                    # hidden_features=[config['hidden_features']] * config['hidden_features_no'],
-                    # activation=config['activation'],
+                    hidden_features=[config['hidden_features']] * config['hidden_features_no'],
+                    activation=config['activation'],
                 )
 
 
@@ -205,13 +230,13 @@ def experiment(index: int) -> None:
         x = noisy(x)
         return loss(theta, x)
 
-    for epoch in tqdm(range(config['epochs']), unit='epoch'):
+    for epoch in tqdm(range(config['epochs']), unit='epoch'): #config['epochs']
         estimator.train()
         
         start = time.time()
         losses = torch.stack([
             step(pipe(theta.float(), x[:,0].float()))
-            for theta, x in islice(trainset, 70) #770
+            for theta, x in islice(trainset, 256) #770
         ]).cpu().numpy()
         end = time.time()
         
@@ -220,7 +245,7 @@ def experiment(index: int) -> None:
         with torch.no_grad():            
             losses_val = torch.stack([
                 pipe(theta.float(), x[:,0].float())
-                for theta, x in islice(validset, 20) #90
+                for theta, x in islice(validset, 32) #90
             ]).cpu().numpy()
 
         run.log({
@@ -237,7 +262,7 @@ def experiment(index: int) -> None:
         runpath = savepath / f'{run.name}' #_{run.id}'
         runpath.mkdir(parents=True, exist_ok=True)
 
-        if epoch % 100 ==0 : 
+        if epoch % 50 ==0 : 
                 torch.save({
                         'estimator': estimator.state_dict(),
                         'optimizer': optimizer.state_dict(),
@@ -246,111 +271,173 @@ def experiment(index: int) -> None:
         if config['stop_criterion'] == 'early' and optimizer.param_groups[0]['lr'] <= config['min_lr']:
             break
 
+        
+    savepath_plots = runpath  / ('plots_sim_b_' + str(epoch))
+    savepath_plots.mkdir(parents=True, exist_ok=True)
 
-    # # Evaluation
-    # plt.rcParams.update(nice_rc(latex=True))
+####################################################################################################################
+    # Evaluation
+    plt.rcParams.update(nice_rc(latex=True))
 
-    # ## Coverage
-    # testset = H5Dataset(datapath / 'test.h5', batch_size=2**4)
-    # d = Data()
-    # ranks = []
+    # Coverage
+    testset = H5Dataset(datapath / 'test.h5', batch_size=2**4) #**4
+    ranks = []
 
-    # with torch.no_grad():
-    #     for theta, x in tqdm(islice(testset, 2**8)):
-    #         theta, x = theta.cuda(), x.cuda()
-    #         x = x[:,0]
-    #         x = noisy(x)
-    #         print(x.size())
-    #         posterior = estimator.flow(x)
-    #         samples = posterior.sample((2**10,))
-    #         log_p = posterior.log_prob(theta)
-    #         log_p_samples = posterior.log_prob(samples)
+    with torch.no_grad():
+        for theta, x in tqdm(islice(testset, 2**8)): #**8
+            theta, x = theta.cuda(), x.cuda()
+            x = x[:,0]
+            x = noisy(x)
+            posterior = estimator.flow(x)
+            samples = posterior.sample((2**10,))
+            log_p = posterior.log_prob(theta)
+            log_p_samples = posterior.log_prob(samples)
 
-    #         ranks.append((log_p_samples < log_p).float().mean(dim=0).cpu())
+            ranks.append((log_p_samples < log_p).float().mean(dim=0).cpu())
 
-    # ranks = torch.cat(ranks)
-    # ecdf_fig = coverage_plot(ranks, coverages = np.linspace(0, 1, 256))
-    # ecdf_fig.savefig(runpath / 'coverage.pdf')
+    ranks = torch.cat(ranks)
+    ranks_numpy = ranks.double().numpy() #convert to Numpy array
+    df_ranks = pd.DataFrame(ranks_numpy) #convert to a dataframe
+    df_ranks.to_csv(savepath_plots /"ranks.csv",index=False) #save to file
 
-    # ## Corner
-    # # dataset = H5Dataset(datapath / 'event.h5')
-    # # theta_star, x_star = dataset[1]
-    # x_star = d.flux*d.flux_scaling
+    df_ranks = pd.read_csv(savepath_plots/"ranks.csv")
+    ranks = df_ranks.values
 
-    # with torch.no_grad():
-    #     theta = torch.cat([
-    #         estimator.sample(x_star.cuda(), (2**14,)).cpu()
-    #         for _ in range(2**6)
-    #     ])
+    a=[]
+    r = np.sort(np.asarray(ranks))
+
+    for alpha in np.linspace(0,1,100):
+        a.append((r > (1-alpha)).mean())
+
+    cov_fig, ax = plt.subplots(figsize=(4, 4))
+    ax.set_xlabel(r'Credibility level $1-\alpha$', fontsize = 10)
+    ax.set_ylabel(r'Coverage probability', fontsize= 10)
+    ax.plot(np.linspace(0,1,100),a, color='steelblue', label='upper right') #a[::-1]
+    ax.plot([0, 1], [0, 1], color='k', linestyle='--')
+    # plt.grid()
+    # ax.set_xticks(fontsize=8)
+    # ax.set_yticks(fontsize=8)
+    cov_fig.savefig(savepath_plots / 'coverage.pdf') 
+
+# ####################################################################################################
+
+    def thetascalebackup(theta):
+         #almost same as deNormVal(outputs a list not tensor)
+         return torch.Tensor(LOWER) + theta * (torch.Tensor(UPPER) - torch.Tensor(LOWER))
+
+#     ## Corner    
+    d = Data()
+    x_star =  noisy(torch.Tensor(np.loadtxt('x_sim_b.npy'))[0].cuda())
+    theta_star = torch.Tensor(np.loadtxt('theta_sim_b.npy'))
+
+    with torch.no_grad():
+        theta = torch.cat([estimator.flow(x_star.cuda()).sample((2**14,)).cpu() #**14
+                            for _ in tqdm(range(2**6))
+            
+                    ])
+
+#     ##Saving to file
+    theta_numpy = theta.double().numpy() #convert to Numpy array
+    df_theta = pd.DataFrame(theta_numpy) #convert to a dataframe
+    df_theta.to_csv( savepath_plots / 'theta.csv' ,index=False) #save to file
     
-    # theta_numpy = theta.double().numpy() #convert to Numpy array
-    # df_theta = pd.DataFrame(theta_numpy) #convert to a dataframe
-    # df_theta.to_csv(runpath/ 'theta.csv' ,index=False) #save to file
-
-    # corner_fig = corner(
-    #     theta,
-    #     smooth=2,
-    #     bounds=(LOWER, UPPER),
-    #     labels=LABELS,
-    #     legend=r'$p_{\phi}(\theta | x^*)$',
-    #     # markers=[theta_star],
-    #     figsize=(12, 12),
-    # )
-    # corner_fig.savefig(runpath / 'corner.pdf')
+    #Then, to reload:
+    df_theta = pd.read_csv( savepath_plots / 'theta.csv')
+    theta = df_theta.values
+    theta = torch.from_numpy(theta)
     
-    # ## NumPy
-    # theta_star, x_star = theta_star.double().numpy(), x_star.double().numpy()
-    # theta = theta[:2**8].double().numpy()
+    corner_fig = corner_mod([thetascalebackup(theta)], legend=['NPE'], \
+                    color= ['steelblue'] , figsize=(19,19), \
+                 domain = (LOWER, UPPER), labels= LABELS) #
+    mark_point(corner_fig, thetascalebackup(theta_star), color='black')
+    corner_fig.savefig(savepath_plots / 'corner.pdf')
+    
+    ## NumPy
+    def filter_limbdark_mask(theta):
+        mask = theta[:,-1]<0
+        mask += theta[:,-1]>1
+        return mask 
 
-    # ## PT profile
-    # pt_fig, ax = plt.subplots(figsize=(4.8, 4.8))
+    # print(thetascalebackup(theta))
+    mask = filter_limbdark_mask(thetascalebackup(theta))
+    theta_filterLD = theta[~mask]
+    # print(theta_filterLD)
 
-    # pressures = simulator.atmosphere.press / 1e6
-    # temperatures = pt_profile(theta, pressures)
+    ####################################################################################################
 
-    # for q in [0.997, 0.95, 0.68]:
-    #     left, right = np.quantile(temperatures, [0.5 - q / 2, 0.5 + q / 2], axis=0)
-    #     ax.fill_betweenx(pressures, left, right, color='C0', alpha=0.25, linewidth=0)
+#     ## PT profile
+    pt_fig, ax = plt.subplots(figsize=(4.8, 4.8))
+    simul = SpectrumMaker(d.model_wavelengths, param_set)
+    pressures = simul.atmosphere.press / 1e6
+    val_act = deNormVal(theta_star.numpy(), param_list)
+    params = param_set.param_dict(val_act)
+    temperatures = make_pt(params , pressures)
 
-    # ax.plot(pt_profile(theta_star, pressures), pressures, color='k', linestyle='--')
+    pt_fig, ax = plt.subplots(figsize=(4,4))
+    ax.plot(temperatures, pressures, color = 'black')  ##sim
+    fig_pt = PT_plot(pt_fig, ax, theta_filterLD[:2**8], invert = True) #, self.theta_star) **8
+    fig_pt.savefig(savepath_plots / 'pt_profile.pdf')
 
-    # ax.set_xlabel(r'Temperature $[\mathrm{K}]$')
-    # ax.set_xlim(0, 4000)
-    # ax.set_ylabel(r'Pressure $[\mathrm{bar}]$')
-    # ax.set_ylim(1e-2, 1e1)
-    # ax.set_yscale('log')
-    # ax.invert_yaxis()
-    # ax.grid()
-
-    # pt_fig.savefig(runpath / 'pt_profile.pdf')
+####################################################################################################
 
     # ## Residuals
-    # res_fig, ax = plt.subplots(figsize=(4.8, 4.8))
+    x = np.stack([simulator(t) for t in tqdm(theta_filterLD[:2**9])]) #**9
+    x = x[:,0]
+    mask = ~np.isnan(x).any(axis=-1)
+    mask1 = ~np.isinf(x[mask]).any(axis=-1)
+    theta, x = theta[mask][mask1], x[mask][mask1]
+    x = torch.from_numpy(x)
+    x = noisy(x)
 
-    # x = np.stack([simulator(t) for t in tqdm(theta)])
-    # mask = ~np.isnan(x).any(axis=-1)
-    # theta, x = theta[mask], x[mask]
+    df_theta = pd.DataFrame(theta) #convert to a dataframe
+    df_x = pd.DataFrame(x) #convert to a dataframe
 
-    # wlength = np.linspace(0.95, 2.45, x.shape[-1])
-    
-    # for q in [0.997, 0.95, 0.68]:
-    #     lower, upper = np.quantile(x, [0.5 - q / 2, 0.5 + q / 2], axis=0)
-    #     ax.fill_between(wlength, lower, upper, color='C0', alpha=0.25, linewidth=0)
+    df_theta.to_csv('theta_256_noisy.csv',index=False) #save to file
+    df_x.to_csv('x_256_noisy.csv',index=False) #save to file
 
-    # ax.plot(wlength, x_star, color='k', linestyle=':')
-    
-    # ax.set_xlabel(r'Wavelength $[\mu\mathrm{m}]$')
-    # ax.set_ylabel(r'Flux $[\mathrm{W} \, \mathrm{m}^{-2} \, \mu\mathrm{m}^{-1}]$')
-    # ax.grid()
+    #Then, to reload:
+    df_theta = pd.read_csv('theta_256_noisy.csv')
+    theta_256_noisy = df_theta.values
+    df_x = pd.read_csv('x_256_noisy.csv')
+    x = df_x.values
+    theta_256_noisy, x_256_noisy = torch.from_numpy(theta_256_noisy), torch.from_numpy(x)
 
-    # res_fig.savefig(runpath / 'residuals.pdf')
+    res_fig, (ax1, ax2) = plt.subplots(2, figsize=(10,7), gridspec_kw={'height_ratios': [3, 1]})
+    creds= [0.997, 0.955, 0.683]
+    alpha = (0.0, 0.9)
+    levels, creds = levels_and_creds(creds= creds, alpha = alpha)
+    cmap= LinearAlphaColormap('steelblue', levels=creds, alpha=alpha)
 
-    # run.log({
-    #     'coverage': wandb.Image(ecdf_fig),
-    #     'corner': wandb.Image(corner_fig),
-    #     # 'pt_profile': wandb.Image(pt_fig),
-    #     # 'res_fig': wandb.Image(res_fig),
-    # })
+    wlength = d.data_wavelengths
+
+    for q, l in zip(creds[:-1], levels):
+        lower, upper = np.quantile(x_256_noisy.numpy(), [0.5 - q / 2, 0.5 + q / 2], axis=0)
+        ax1.fill_between(wlength, lower, upper, color= cmap(l), linewidth=0) #'C0', alpha=0.4,
+
+    lines = ax1.plot(wlength, x_star, color='black', label = r'$ f(\theta_{obs})$', linewidth = 0.4)
+    handles, texts = legends(axes= ax1, alpha=alpha) #0.15, 0.75
+    texts = [r'$ f(\theta_{obs})$', r'$p_{\phi}(f(\theta)|x_{obs})$']
+
+    plt.setp(ax1.get_xticklabels(), visible=False)
+    ax1.set_ylabel(r'Planet flux $F_\nu$ (10$^{-5}$) Jy', fontsize = 10)
+    ax1.legend(handles, texts, prop = {'size': 8}, bbox_to_anchor=(1,1))
+
+    residuals = (x_256_noisy - x_star) / torch.Tensor(d.err*d.flux_scaling*config['noise_scaling'])
+
+    for q, l in zip(creds[:-1], levels):
+        lower, upper = np.quantile(residuals, [0.5 - q / 2, 0.5 + q / 2], axis=0)
+        ax2.fill_between(wlength, lower, upper, color= cmap(l) , linewidth=0) 
+    ax2.set_ylabel(r'Residuals', fontsize = 10)
+    ax2.set_xlabel( r'Wavelength ($\mu$m)', fontsize = 10)
+    res_fig.savefig(savepath_plots / 'consistency_noisy.pdf')
+
+
+    run.log({
+        'coverage': wandb.Image(cov_fig),
+        'corner': wandb.Image(corner_fig),
+        'pt_profile': wandb.Image(fig_pt),
+        'res_fig': wandb.Image(res_fig),
+    })
     run.finish()
 
 

@@ -50,6 +50,10 @@ from corner_modified import *
 # from pt_plotting import *
 import corner
 
+from parameter import *
+from spectra_simulator import SpectrumMaker
+from parameter_set_script import param_set, param_list, param_list_ext, param_set_ext, deNormVal
+
 scratch = os.environ.get('SCRATCH', '')
 # scratch = '/users/ricolandman/Research_data/npe_crires/'
 datapath = Path(scratch) / 'highres-sbi/data_fulltheta' #, data_fulltheta_norm
@@ -82,6 +86,27 @@ LABELS, LOWER, UPPER = zip(*[
 # radius, rv, vsini, limb_dark
 
 d = Data()
+
+def simulator(theta):
+    values = theta[:-4].numpy()
+    values_ext = theta[-4:].numpy()
+    # print(values, values_ext)
+    values_actual = deNormVal(values, param_list)
+    sim_res = 2e5
+    dlam = 2.350/sim_res
+    wavelengths = np.arange(2.320, 2.371, dlam)
+    sim = SpectrumMaker(wavelengths=wavelengths, param_set=param_set, lbl_opacity_sampling=2)
+    spectrum = sim(values_actual)
+    spec = np.vstack((np.array(spectrum), wavelengths))
+    
+    values_ext_actual = deNormVal(values_ext, param_list_ext)
+    # params_ext = param_set_ext.param_dict(values_ext_actual)
+    
+    th, x = processing(torch.Tensor([values_actual]), torch.Tensor(spec), sample= False, \
+                       values_ext_actual= torch.Tensor([values_ext_actual]))
+    # print(np.shape(x))
+    
+    return x.squeeze()
 
 class SoftClip(nn.Module):
     def __init__(self, bound: float = 1.0):
@@ -377,11 +402,11 @@ class plots():
     ######################################################################################################
     ## plotting many models after their runs
     config= {}
-    config['embedding'] = ['shallow'] #, 'shallow']
-    config['transforms'] = [3] #,3]
-    config['noise_scaling'] = [160] #,160]
-    config['softclip'] = ['no'] #, 'no']
-
+    config['embedding'] = ['shallow'] #, 'shallow', 'shallow', 'shallow', 'shallow', 'shallow', 'deep'] #, 'shallow', 'shallow']
+    config['transforms'] = [3] #,3,3, 3,3,3,3] #,3,3]
+    config['noise_scaling'] = [160]#[1] #,160, 160, 160, 160, 160, 160] #,160, 160]
+    config['softclip'] = ['no'] #, 'no', 'no', 'no', 'no', 'no', 'no'] #, 'yes', 'no']
+    config['array_size'] = [6144] #, 6144, 6144, 6144, 6144, 6144, 6144] #, 6144, 6144]
     # config['bins'] = [4,8]
     ######################################################################################################
 
@@ -391,6 +416,7 @@ class plots():
         self.ep = ep
         
         self.savepath_plots = self.runpath  / ('plots_' + str(ep))
+        # self.savepath_plots = self.runpath  / ('plots_' + str(ep)+ '_1')
         self.savepath_plots.mkdir(parents=True, exist_ok=True)
 
         # self.estimator = NPEWithEmbedding().double() 
@@ -403,18 +429,32 @@ class plots():
         self.estimator.load_state_dict(states['estimator'])
         self.estimator.cuda().eval()
 
-        self.x_star =  x_norm(torch.Tensor(d.flux*d.flux_scaling), 'trainset')
+        self.x_star = d.flux *d.flux_scaling
+
+        if self.config['array_size'][ind] == 6144*2:
+            # print('hereeeeeee')
+            self.x_star = np.hstack(( self.x_star, d.data_wavelengths_norm))
+        
+        self.wlength = d.data_wavelengths
+        
+        # print(np.shape(self.x_star))
 
     ######################################################################################################
     ## plotting many models after their runs
     def noisy(self, x):
             data_uncertainty = Data().err * Data().flux_scaling*self.config['noise_scaling'][self.ind] #50 is 10% of the median of the means of spectra in the training set.
-            x = x + torch.from_numpy(data_uncertainty) * torch.randn_like(x)
+            # x = x + torch.from_numpy(data_uncertainty) * torch.randn_like(x)
+            if self.config['array_size'][self.ind] == 6144*2:
+                x[:,0, :] = x[:,0, :] + torch.from_numpy(data_uncertainty) * torch.randn(x[:,0,:].size())
+                x = torch.hstack((x[:, 0, :], x[:,1,:]))
+
+            else: 
+                x = x + torch.from_numpy(data_uncertainty) * torch.randn_like(x)
+            # print(x.size())
             return x
     
-    def pipeout(self, theta: Tensor, x: Tensor, name) -> Tensor:
+    def pipeout(self, theta: Tensor, x: Tensor) -> Tensor:
         x = self.noisy(x)
-        x = x_norm(x, name)
         theta, x = theta.cuda(), x.cuda()
         return theta, x
         
@@ -427,7 +467,7 @@ class plots():
                 self.embedding = nn.Sequential(
                                 SoftClip(100.0),
                                 ResMLP(
-                                6144, 128,
+                                plots.config['array_size'][ind], 128,
                                 hidden_features=[512] * 2 + [256] * 3 + [128] * 5,
                                 activation=nn.ELU,
                                  ))
@@ -450,8 +490,8 @@ class plots():
                 transforms=plots.config['transforms'][ind],
                 build=MAF,
                 # bins=plots.config['bins'][ind],
-                hidden_features=[512] * 5,
-                activation=nn.ELU,
+                # hidden_features=[512] * 5,
+                # activation=nn.ELU,
             )
         
         def forward(self, theta: Tensor, x: Tensor) -> Tensor:
@@ -461,7 +501,7 @@ class plots():
             return self.npe(theta, y)
 
         def flow(self, x: Tensor):  # -> Distribution
-            out = self.npe.flow(self.embedding(x))#.to(torch.double) #
+            out = self.npe.flow(self.embedding(x)) #.to(torch.double)) #
             return out
     ######################################################################################################
 
@@ -518,6 +558,10 @@ class plots():
             theta = df_theta.values
             return torch.from_numpy(theta)
 
+    def filter_limbdark_mask(self, theta):
+        mask = theta[:,-1]<0
+        mask += theta[:,-1]>1
+        return mask #theta[~mask]
 
     def coverage(self): 
         ####### Coverage 
@@ -528,10 +572,16 @@ class plots():
         with torch.no_grad():
             for theta, x in tqdm(islice(testset, 128)):
                 #############################################################################################################
-                theta, x = self.pipeout(theta, x[:, 0], 'testset')
+                if plots.config['array_size'][self.ind] == 6144*2:
+                    # print('i was here')
+                    theta, x = self.pipeout(theta, x)
+                   
+                else:
+                    theta, x = self.pipeout(theta, x[:, 0])
+                    # print('here i am')
                 #############################################################################################################
                 # theta, x = pipeout(theta, x[:, 0])
-                posterior = self.estimator.flow(x)
+                posterior = self.estimator.flow(x.float())
                 samples = posterior.sample((1024,))
                 log_p = posterior.log_prob(theta)
                 log_p_samples = posterior.log_prob(samples)
@@ -567,7 +617,7 @@ class plots():
     def cornerplot(self):
     #### Corner plot
         
-        self.theta = self.sampling_from_post(self.x_star.float().cuda(), self.savepath_plots/'theta.csv', only_returning = False) #.float() torch.from_numpy(
+        self.theta = self.sampling_from_post(torch.from_numpy(self.x_star).float().cuda(), self.savepath_plots/'theta.csv', only_returning = False) #.float()
 
         self.theta = torch.Tensor(LOWER) + self.theta * (torch.Tensor(UPPER) - torch.Tensor(LOWER))
 
@@ -608,25 +658,31 @@ class plots():
 #         figure.savefig(self.savepath_plots / 'corner_HSTcorner.pdf')
 
         #######********
-
-        fig = corner_mod([self.theta[:100000]], legend=['NPE'], \
+        
+        fig = corner_mod([self.theta], legend=['NPE'], \
                     color= ['steelblue'] , figsize=(19,19), \
-                domain = (LOWER, UPPER), labels= LABELS)
+                 domain = (LOWER, UPPER), labels= LABELS) #
         fig.savefig(self.savepath_plots / 'corner.pdf')
 
-        import corner
-        figure = corner.corner(self.theta[:100000].numpy(),
-#                         hist_bin_factor = 10,
-                        labels= LABELS,
-                        range = [(LOWER, UPPER) for i in range(len(self.theta[0]))],
-#                         quantiles=[0.16, 0.5, 0.84],
-                        show_titles=True,
-                        title_kwargs={"fontsize": 12},
-        )
-        figure.savefig(self.savepath_plots / 'corner_corner.pdf')
+#         import corner
+#         figure = corner.corner(self.theta[:100000].numpy(),
+# #                         hist_bin_factor = 10,
+#                         labels= LABELS,
+#                         range = [(LOWER, UPPER) for i in range(len(self.theta[0]))],
+# #                         quantiles=[0.16, 0.5, 0.84],
+#                         show_titles=True,
+#                         title_kwargs={"fontsize": 12},
+#         )
+#         figure.savefig(self.savepath_plots / 'corner_corner_1.pdf')
 
 ###############################################################################################################
     def ptprofile(self):
+
+        self.theta = self.sampling_from_post(torch.from_numpy(self.x_star).float().cuda(), self.savepath_plots/'theta.csv', only_returning = True) #.float()
+        theta_scaledbackup = torch.Tensor(LOWER) + self.theta * (torch.Tensor(UPPER) - torch.Tensor(LOWER))
+        mask = self.filter_limbdark_mask(theta_scaledbackup)
+        self.theta = self.theta[~mask]
+
     # PT profile
         # pt_paul=pd.read_csv('/home/mvasist/WISEJ1828/WISEJ1828/4/best_fit_PT.dat',sep=" ",header=0)
         fig, ax = plt.subplots(figsize=(4,4))
@@ -640,18 +696,26 @@ class plots():
 ###############################################################################################################
     def consistencyplot(self):
     ## Consistency check
+        self.theta = self.sampling_from_post(torch.from_numpy(self.x_star).float().cuda(), self.savepath_plots/'theta.csv', only_returning = True) #.float()
+        theta_scaledback = torch.Tensor(LOWER) + self.theta * (torch.Tensor(UPPER) - torch.Tensor(LOWER))
+        mask = self.filter_limbdark_mask(theta_scaledback)
+        self.theta = self.theta[~mask]
 
         def sim_spectra(theta, theta_name, x_name, only_returning = True, noisy = True):
             if not only_returning:
                 x = np.stack([simulator(t) for t in tqdm(theta)])
+                # print(np.shape(x))
+                x = x[:,0]
+                # print(np.shape(x))
                 mask = ~np.isnan(x).any(axis=-1)
                 mask1 = ~np.isinf(x[mask]).any(axis=-1)
                 theta, x = theta[mask][mask1], x[mask][mask1]
                 x = torch.from_numpy(x)
-                x = x[:,87:1385]
+                # x = x[:,87:1385]
+                # print(np.shape(x))
 
                 if noisy :
-                    x = noisybfactor(x)
+                    x = self.noisy(x)
 
                 ## to save
                 df_theta = pd.DataFrame(theta) #convert to a dataframe
@@ -681,7 +745,7 @@ class plots():
 
         for q, l in zip(creds[:-1], levels):
         #     cls = tuple(mcolors.to_rgba(mcolors.CSS4_COLORS[cc[i]])[:3])
-            lower, upper = np.quantile(x_256.numpy(), [0.5 - q / 2, 0.5 + q / 2], axis=0)
+            lower, upper = np.quantile(x_256_noisy.numpy(), [0.5 - q / 2, 0.5 + q / 2], axis=0)
             ax1.fill_between(self.wlength, lower, upper, color= cmap(l), linewidth=0) #'C0', alpha=0.4,
 
         lines = ax1.plot(self.wlength, self.x_star, color='black', label = r'$ f(\theta_{obs})$', linewidth = 0.4)
@@ -699,7 +763,7 @@ class plots():
         ax1.legend(handles, texts, prop = {'size': 8}, bbox_to_anchor=(1,1))
         # ax1.grid()
 
-        residuals = (x_256 - self.x_star) / (simulator.sigma * simulator.scale)
+        residuals = (x_256_noisy - self.x_star) / (d.err*d.flux_scaling)
 
         for q, l in zip(creds[:-1], levels):
             #     cls = tuple(mcolors.to_rgba(mcolors.CSS4_COLORS[cc[i]])[:3])
@@ -711,13 +775,13 @@ class plots():
         # ax2.set_ylim(-5,5)
         # ax2.set_xticklabels(np.round(np.arange(0.8, 2.6, 0.2),1),fontsize=8) 
         # ax2.grid()
-        fig.savefig(self.savepath_plots / 'consistency.pdf')
+        fig.savefig(self.savepath_plots / 'consistency_noisy.pdf')
 ###############################################################################################################
 
 ## corner with 14/15 NH3
     def cornerWratio(self):
 
-        self.theta = self.sampling_from_post(torch.from_numpy(self.x_star).cuda(), self.savepath_plots/'theta.csv', only_returning = True) #.float()
+        self.theta = self.sampling_from_post(torch.from_numpy(self.x_star).cuda(), self.savepath_plots/'theta.csv', only_returning = False) #.float()
         
         def ratio(theta):
             N14 = 10**theta[:,16]

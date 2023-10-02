@@ -272,7 +272,7 @@ def pipeout(theta: Tensor, x: Tensor) -> Tensor:
         return theta, x
    
 
-@job(array=3, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
+@job(array=4, cpus=2, gpus=1, ram='64GB', time='10-00:00:00')
 def train(i: int):
 
     # config_dict = {
@@ -384,10 +384,10 @@ def train(i: int):
 
     # m = ['blooming-yogurt-146', 'honest-microwave-147', 'zany-bird-148', \
     #      'ruby-feather-149', 'peachy-bush-150', 'eager-sea-151', 'amber-wave-152'] 
-    m = ['celestial-frog-159', 'faithful-planet-160', 'earthy-sun-162' ] #\ #'autumn-cherry-157', 'ethereal-sponge-161'
+    m = [ 'ethereal-sponge-161','celestial-frog-159', 'faithful-planet-160', 'earthy-sun-162' ] #\ #'autumn-cherry-157',
          #['autumn-cherry-157']
     # epochs = [2500, 2500, 2500, 2500, 2500, 2500, 2500]
-    epochs = [550, 550, 550] #, 400, 400] #[1600]
+    epochs = [1100, 1100, 1100, 1100] #, 400, 400] #[1600]
     epoch = epochs[i]
     runpath = savepath / m[i]
     runpath.mkdir(parents=True, exist_ok=True)
@@ -414,11 +414,11 @@ class plots():
     ######################################################################################################
     ## plotting many models after their runs
     config= {}
-    config['embedding'] = ['deep', 'deep', 'deep'] #, 'deep', 'deep'] #, 'shallow', 'shallow', 'shallow', 'shallow', 'shallow', 'deep'] #, 'shallow', 'shallow']
-    config['transforms'] = [3,3, 3] #,3,3] #,3,3, 3,3,3,3] #,3,3]
-    config['noise_scaling'] = [10, 5, 3] #, 2, 3]#[1] #,160, 160, 160, 160, 160, 160] #,160, 160]
-    config['softclip'] = ['no', 'no', 'no'] #, 'no', 'no'] #, 'no', 'no', 'no', 'no', 'no', 'no'] #, 'yes', 'no']
-    config['array_size'] = [6144, 6144, 6144] #, 6144, 6144] #, 6144, 6144, 6144, 6144, 6144, 6144] #, 6144, 6144]
+    config['embedding'] = ['deep', 'deep', 'deep', 'deep'] #, 'deep', 'deep'] #, 'shallow', 'shallow', 'shallow', 'shallow', 'shallow', 'deep'] #, 'shallow', 'shallow']
+    config['transforms'] = [ 3, 3, 3, 3] #,3,3] #,3,3, 3,3,3,3] #,3,3]
+    config['noise_scaling'] = [ 2, 10, 5, 3] #, 2, 3]#[1] #,160, 160, 160, 160, 160, 160] #,160, 160]
+    config['softclip'] = ['no', 'no', 'no', 'no'] #, 'no', 'no'] #, 'no', 'no', 'no', 'no', 'no', 'no'] #, 'yes', 'no']
+    config['array_size'] = [ 6144, 6144, 6144, 6144] #, 6144, 6144] #, 6144, 6144, 6144, 6144, 6144, 6144] #, 6144, 6144]
     # config['bins'] = [4,8]
     ######################################################################################################
 
