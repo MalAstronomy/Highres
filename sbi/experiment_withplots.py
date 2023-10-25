@@ -76,26 +76,12 @@ sim = SpectrumMaker(wavelengths=d.model_wavelengths, param_set=param_set, lbl_op
 
 
 def simulator(theta):
-    # values = theta[:-4].numpy()
-    # values_ext = theta[-4:].numpy()
-    # print(values, values_ext)
-    # values_actual = deNormVal(values, param_list)
-    # spectrum = sim(values_actual)
-
     values_actual = theta[:-4].numpy()
     values_ext_actual = theta[-4:].numpy()
     spectrum = sim(values_actual)
     spec = np.vstack((np.array(spectrum), d.model_wavelengths))
-    
-    # values_ext_actual = deNormVal(values_ext, param_list_ext)
-    # params_ext = param_set_ext.param_dict(values_ext_actual)
-    
-    # th, x = processing(torch.Tensor([values_actual]), torch.Tensor(spec), sample= False, \
-    #                    values_ext_actual= torch.Tensor([values_ext_actual]))
     th, x = processing(torch.Tensor([values_actual]), torch.Tensor(spec), sample= False, \
-                       values_ext_actual= torch.Tensor([values_ext_actual]))
-    # print(np.shape(x))
-    
+                       values_ext_actual= torch.Tensor([values_ext_actual]))    
     return x.squeeze()
 
 
@@ -214,13 +200,6 @@ def experiment(index: int) -> None:
 
         x = x + torch.mul(data_uncertainty * b.cuda() , torch.randn_like(x))
         return x, b
-
-        # if b == None: 
-        #     return x, b
-        # else: 
-        #     return x
-
-    # l, u = torch.tensor(LOWER), torch.tensor(UPPER)
 
     class NPEWithEmbedding(nn.Module):
         def __init__(self):
@@ -372,9 +351,6 @@ def experiment(index: int) -> None:
     #         break
 
 ############################################################
-    # datapath = Path(scratch) / 'highres-sbi/data_nic5'
-    # savepath = Path(scratch) / 'highres-sbi/runs/sweep_lessnoisy'
-    
     # Loading from a model to plot
     m = 'peachy-feather-81' #'comfy-dawn-59'
     epoch = config['epochs']
@@ -402,9 +378,7 @@ def experiment(index: int) -> None:
     with torch.no_grad():
         for theta, x in tqdm(islice(testset, 2**8)): #**8
             theta, x = theta.cuda(), x.cuda()
-            # x = x[:,0]
             theta, x = pipeout(theta, x)
-            # x, _ = noisy(x,2)
             posterior = estimator.flow(x)
             samples = posterior.sample((2**10,))
             log_p = posterior.log_prob(theta)
@@ -431,28 +405,19 @@ def experiment(index: int) -> None:
     ax.set_ylabel(r'Coverage probability', fontsize= 10)
     ax.plot(np.linspace(0,1,100),a, color='steelblue', label='upper right') #a[::-1]
     ax.plot([0, 1], [0, 1], color='k', linestyle='--')
-    # plt.grid()
-    # ax.set_xticks(fontsize=8)
-    # ax.set_yticks(fontsize=8)
     cov_fig.savefig(savepath_plots / 'coverage.pdf') 
 
 # ####################################################################################################
 
     def thetascalebackup(theta):
-         #almost same as deNormVal(outputs a list not tensor)
-        # print(theta[:-1].size(), torch.Tensor(LOWER[:-1]).size(), 'here')
         theta[:-1] =  torch.Tensor(LOWER[:-1]) + theta[:-1] * (torch.Tensor(UPPER[:-1]) - torch.Tensor(LOWER[:-1]))
         return theta
 
 # #     ## Corner    
-    # x_star, _ =  noisy(torch.Tensor(np.loadtxt('/home/mvasist/Highres/observation/simulated_obs/x_sim_b.npy'))[0].cuda())
     obs = torch.Tensor(np.loadtxt('/home/mvasist/Highres/observation/simulated_obs/x_sim_b.npy'))
     theta_star = torch.Tensor(np.loadtxt('/home/mvasist/Highres/observation/simulated_obs/theta_sim_b.npy'))
     obs = torch.unsqueeze(obs[0], 0)
     theta_star = torch.unsqueeze(theta_star, 0)
-    # x_star, _ =  noisy(obs.cuda())
-    # x_star = x_star[0]
-    # x_star, _ =  noisy(torch.Tensor(np.loadtxt('x_sim_b.npy'))[0].cuda(),2)
     theta_star, x_star = pipeout(theta_star, obs)  #[1,6144] dimensions [1,20]
     theta_star, x_star = theta_star[0], x_star[0]
 
@@ -460,7 +425,6 @@ def experiment(index: int) -> None:
         theta = torch.cat([estimator.flow(x_star.cuda()).sample((2**14,)).cpu() #**14
                             for _ in tqdm(range(2**6))   #############
                     ])
-    # print(theta.size())
 
 #     ##Saving to file #############
     theta_numpy = theta.double().numpy() #convert to Numpy array
@@ -487,33 +451,19 @@ def experiment(index: int) -> None:
         mask += theta[:,-2]>1
         return mask 
     def filter_logdelta_mask(theta):
-        # mask = theta[:,8]<
         mask = theta[:,8]>8
         return mask 
 
-    # print(thetascalebackup(theta))
     mask1 = filter_limbdark_mask(theta)
     theta_filterLD = theta[~mask1]
     mask2 = filter_logdelta_mask(theta_filterLD)
     theta_filterLD = theta_filterLD[~mask2]
-        # print(theta_filterLD)
 
 
     ### PT profile
     fig, ax = plt.subplots(figsize=(4,4))
 
-    ##sim PT
-    # pressures = sim.atmosphere.press / 1e6
-    # val_act = deNormVal(theta_star.cpu().numpy(), param_list)
-    # params = param_set.param_dict(val_act)
-    # temp= make_pt(params , pressures)
-    # ax.plot(temp, pressures, color = 'black')  ##sim
-    ##sim PT
-
-    # print(theta_filterLD[:2**8, :-1].size(), theta_filterLD)
     fig_pt = PT_plot(fig, ax, theta_filterLD[:2**8, :-1], theta_star, invert = True)
-    # fig_pt = PT_plot(fig_pt, ax, self.theta_paul[:2**8], invert = True, color = 'orange') #, theta_star)
-    # fig_pt.savefig(self.savepath_plots / 'pt_profile_Paul_unregPTwithb_24Apr2023.pdf')
     fig_pt.savefig(savepath_plots / 'pt_profile.pdf')
 
 
@@ -528,7 +478,6 @@ def experiment(index: int) -> None:
     theta_filterLD_512, x_filterLD_512 = theta_filterLD_512[mask][mask1], x_filterLD_512[mask][mask1]
     x_filterLD_512 = torch.from_numpy(x_filterLD_512)
     x_filterLD_512, _= noisy(x_filterLD_512.cuda(), theta_filterLD_512[:, -1])
-    # x_filterLD_512, _= noisy(x_filterLD_512.cuda(), theta_filterLD_512[:, -1])
 
     df_theta = pd.DataFrame(theta_filterLD_512) #convert to a dataframe
     df_x = pd.DataFrame(x_filterLD_512.cpu()) #convert to a dataframe
