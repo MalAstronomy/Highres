@@ -46,8 +46,7 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 # from ees import Simulator, LOWER, UPPER
 # from Embedding.SelfAttention import SelfAttention
 # import Embedding.CNN as CNN
-from corner_modified import *
-# from pt_plotting import *
+
 import corner
 
 from corner_modified import *

@@ -2,14 +2,15 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
 
-from adding_legends import legends
-
 from lampe.plots import corner 
 from lampe.plots import LinearAlphaColormap
 
 import sys
 sys.path.insert(0, '/home/mvasist/Highres/sbi/')
-from train_new import LABELS, LOWER, UPPER
+from added_scripts.adding_legends import legends
+
+sys.path.insert(0, '/home/mvasist/Highres/simulations/')
+from parameter_set_script import LABELS, LOWER, UPPER
 
 
 def corner_mod(theta, legend=['NPE', 'NS'], color= ['steelblue', 'orange'] , figsize=(10,10), \

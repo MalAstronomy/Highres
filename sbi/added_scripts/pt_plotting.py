@@ -6,7 +6,8 @@ sys.path.insert(0, '/home/mvasist/Highres/simulations/') #WISEJ1738/sbi' WISEJ17
 from spectra_simulator import make_pt, SpectrumMaker
 from parameter_set_script import param_set, param_list, param_list_ext, param_set_ext, deNormVal
 
-from adding_legends import legends
+sys.path.insert(0, '/home/mvasist/Highres/sbi/')
+from added_scripts.adding_legends import legends
 
 from lampe.plots import LinearAlphaColormap
 
@@ -33,8 +34,9 @@ def PT_plot(fig, ax, theta, theta_nom= None, color = 'steelblue', creds= [0.997,
     pressures = simulator.atmosphere.press / 1e6
     temperatures = []
     for th in theta :
-        values_actual = deNormVal(th.numpy(), param_list)
-        params = param_set.param_dict(values_actual)
+        # values_actual = deNormVal(th.numpy(), param_list)
+        # params = param_set.param_dict(values_actual)
+        params = param_set.param_dict(th.numpy())
         temperatures.append(make_pt(params , pressures))  
 
     # temperatures = make_pt(params , pressures) 
@@ -48,7 +50,9 @@ def PT_plot(fig, ax, theta, theta_nom= None, color = 'steelblue', creds= [0.997,
     handles, texts = legends(ax, alpha=alpha) #[0.15,0.75]
 
     if theta_nom != None:
-        ax.plot(make_pt(theta_nom, pressures), pressures, color='black', label= 'Synthetic observation')
+        val_act = deNormVal(theta_nom.cpu().numpy(), param_list)
+        params = param_set.param_dict(val_act)
+        ax.plot(make_pt(params, pressures), pressures, color='black', label= 'Synthetic observation')
 
     # ax.set_xticklabels(np.arange(500,4000,500),fontsize=8)
     # ax.set_yticklabels(np.arange(1e-2, 1e1, np.log10(0.1)),fontsize=8)
