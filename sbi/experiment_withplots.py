@@ -39,6 +39,13 @@ from spectra_simulator import make_pt, SpectrumMaker
 from parameter import *
 from parameter_set_script import param_set, param_list, param_list_ext, param_set_ext, deNormVal
 
+# from ..simulations.DataProcuring import Data
+# from ..simulations.ProcessingSpec import ProcessSpec
+# from ..simulations.spectra_simulator import make_pt, SpectrumMaker
+# from ..simulations.parameter import *
+# from ..simulations.parameter_set_script import param_set, param_list, param_list_ext, param_set_ext, deNormVal
+
+
 print('here i am')
 
 # from ees import Simulator, LOWER, UPPER, LABELS, pt_profile
@@ -113,7 +120,7 @@ def simulator(theta):
 
 ## Loading from a model to plot
 CONFIGS = {
-    'embedding': ['shallow'],
+    'embedding': ['deep'],
     'flow': ['MAF'],  #, 'NCSF', 'SOSPF', 'UNAF', 'CNF'], #'NAF', 
     'transforms': [3], #, 7], #3, 
     # 'signal': [16, 32],  # not important- the autoregression network output , 32
@@ -121,24 +128,24 @@ CONFIGS = {
     'hidden_features_no' : [5], 
     'activation': [nn.ELU], #, nn.ReLU],
     'optimizer': ['AdamW'],
-    'init_lr':  [1e-3], #[5e-4, 1e-5]
-    'weight_decay': [1e-4], #[1e-4], #
+    'init_lr':  [1e-5], #[5e-4, 1e-5]
+    'weight_decay': [1e-2], #[1e-4], #
     'scheduler': ['ReduceLROnPlateau'], #, 'CosineAnnealingLR'],
-    'min_lr': [1e-5], # 1e-6
-    'patience': [16], #8
-    'epochs': [350],
+    'min_lr': [1e-6], # 1e-6
+    'patience': [32], #8
+    'epochs': [900],
     'stop_criterion': ['early'], #, 'late'],
     'batch_size':  [256],
     'spectral_length' : [6144], #[1536, 3072, 6144]
     'factor' : [0.3], 
-    'noise_scaling' : [2], 
+    # 'noise_scaling' : [2], 
     'noise' : ['lognormaldist']
     # 'SOSF_degree' : [2,3,4],
     # 'SOSF_poly' : [2,4,6],
 }
 
 
-@job(array=1, cpus=2, gpus=1, ram='128GB', time='10-00:00:00')
+@job(array=3, cpus=2, gpus=1, ram='128GB', time='10-00:00:00')
 def experiment(index: int) -> None:
     # Config
     config = {
@@ -196,7 +203,7 @@ def experiment(index: int) -> None:
                 b = m.sample([bs])
         else: 
             b = torch.unsqueeze(b, 1)
-            print(b.size())
+            # print(b.size())
 
         x = x + torch.mul(data_uncertainty * b.cuda() , torch.randn_like(x))
         return x, b
@@ -352,7 +359,7 @@ def experiment(index: int) -> None:
 
 ############################################################
     # Loading from a model to plot
-    m = 'peachy-feather-81' #'comfy-dawn-59'
+    m = 'comfy-star-89' #'peachy-feather-81' #'comfy-dawn-59'
     epoch = config['epochs']
     runpath = savepath / m
     runpath.mkdir(parents=True, exist_ok=True)
@@ -364,8 +371,12 @@ def experiment(index: int) -> None:
 
 ############################################################
         
-    savepath_plots = runpath  / ('plots_sim_b_' + str(epoch))
+    # savepath_plots = runpath  / ('plots_sim_b_' + str(epoch))
+
+    savepath_plots = runpath  / ('plots_' + str(epoch))
     savepath_plots.mkdir(parents=True, exist_ok=True)
+
+
 
 ####################################################################################################################
     # Evaluation
@@ -376,7 +387,7 @@ def experiment(index: int) -> None:
     ranks = []
 
     with torch.no_grad():
-        for theta, x in tqdm(islice(testset, 2**8)): #**8
+        for theta, x in tqdm(islice(testset, 2**7)): #**8
             theta, x = theta.cuda(), x.cuda()
             theta, x = pipeout(theta, x)
             posterior = estimator.flow(x)
@@ -407,20 +418,27 @@ def experiment(index: int) -> None:
     ax.plot([0, 1], [0, 1], color='k', linestyle='--')
     cov_fig.savefig(savepath_plots / 'coverage.pdf') 
 
-# ####################################################################################################
+# # # ####################################################################################################
 
     def thetascalebackup(theta):
         theta[:-1] =  torch.Tensor(LOWER[:-1]) + theta[:-1] * (torch.Tensor(UPPER[:-1]) - torch.Tensor(LOWER[:-1]))
         return theta
 
-# #     ## Corner    
-    obs = torch.Tensor(np.loadtxt('/home/mvasist/Highres/observation/simulated_obs/x_sim_b.npy'))
-    theta_star = torch.Tensor(np.loadtxt('/home/mvasist/Highres/observation/simulated_obs/theta_sim_b.npy'))
-    obs = torch.unsqueeze(obs[0], 0)
-    theta_star = torch.unsqueeze(theta_star, 0)
-    theta_star, x_star = pipeout(theta_star, obs)  #[1,6144] dimensions [1,20]
-    theta_star, x_star = theta_star[0], x_star[0]
+    ### #############Observation
 
+    # obs = torch.Tensor(np.loadtxt('/home/mvasist/Highres/observation/simulated_obs/x_sim_b.npy'))
+    # theta_star = torch.Tensor(np.loadtxt('/home/mvasist/Highres/observation/simulated_obs/theta_sim_b.npy'))
+    # obs = torch.unsqueeze(obs[0], 0)
+    # theta_star = torch.unsqueeze(theta_star, 0)
+    # theta_star, x_star = pipeout(theta_star, obs)  #[1,6144] dimensions [1,20]
+    # theta_star, x_star = theta_star[0], x_star[0]
+
+    def data_loading():
+        return torch.from_numpy(d.flux*d.flux_scaling)
+    x_star =  data_loading()
+
+
+# # # #     ## Corner    
     with torch.no_grad():
         theta = torch.cat([estimator.flow(x_star.cuda()).sample((2**14,)).cpu() #**14
                             for _ in tqdm(range(2**6))   #############
@@ -431,21 +449,21 @@ def experiment(index: int) -> None:
     df_theta = pd.DataFrame(theta_numpy) #convert to a dataframe
     df_theta.to_csv( savepath_plots / 'theta.csv' ,index=False) #save to file
     
-    #Then, to reload:
+# #     #Then, to reload:
     df_theta = pd.read_csv( savepath_plots / 'theta.csv')
     theta = df_theta.values
     theta = torch.from_numpy(theta)
 
-    #######################
+# #     #######################
     corner_fig = corner_mod([theta], legend=['NPE'], \
                     color= ['steelblue'] , figsize=(20,20), \
                  domain = (LOWER, UPPER), labels= LABELS) #
-    mark_point(corner_fig, thetascalebackup(theta_star.cpu()), color='black')
+    # mark_point(corner_fig, thetascalebackup(theta_star.cpu()), color='black') 
     corner_fig.savefig(savepath_plots / 'corner.pdf')
     
 
-    ####################################################################################################
-#     ## NumPy
+#     ####################################################################################################
+# #     ## NumPy
     def filter_limbdark_mask(theta):
         mask = theta[:,-2]<0
         mask += theta[:,-2]>1
@@ -463,33 +481,34 @@ def experiment(index: int) -> None:
     ### PT profile
     fig, ax = plt.subplots(figsize=(4,4))
 
-    fig_pt = PT_plot(fig, ax, theta_filterLD[:2**8, :-1], theta_star, invert = True)
+    # fig_pt = PT_plot(fig, ax, theta_filterLD[:2**8, :-1], theta_star, invert = True)
+    fig_pt = PT_plot(fig, ax, theta_filterLD[:2**8, :-1], invert = True)
     fig_pt.savefig(savepath_plots / 'pt_profile.pdf')
 
 
 ####################################################################################################
 
-    # ## Residuals
+    ## Residuals
     theta_filterLD_512 = theta_filterLD[:2**9]
     x_filterLD_512 = np.stack([simulator(t) for t in tqdm(theta_filterLD_512[:,:-1])]) #**9
     x_filterLD_512 = x_filterLD_512[:,0]
     mask = ~np.isnan(x_filterLD_512).any(axis=-1)
     mask1 = ~np.isinf(x_filterLD_512[mask]).any(axis=-1)
     theta_filterLD_512, x_filterLD_512 = theta_filterLD_512[mask][mask1], x_filterLD_512[mask][mask1]
-    x_filterLD_512 = torch.from_numpy(x_filterLD_512)
+    x_filterLD_512 = torch.from_numpy(x_filterLD_512) 
     x_filterLD_512, _= noisy(x_filterLD_512.cuda(), theta_filterLD_512[:, -1])
 
-    df_theta = pd.DataFrame(theta_filterLD_512) #convert to a dataframe
-    df_x = pd.DataFrame(x_filterLD_512.cpu()) #convert to a dataframe
+    df_theta_512 = pd.DataFrame(theta_filterLD_512) #convert to a dataframe
+    df_x_512 = pd.DataFrame(x_filterLD_512.cpu()) #convert to a dataframe
 
-    df_theta.to_csv('theta_256_noisy.csv',index=False) #save to file
-    df_x.to_csv('x_256_noisy.csv',index=False) #save to file
+    df_theta_512.to_csv(savepath_plots/ 'theta_256_noisy.csv',index=False) #save to file
+    df_x_512.to_csv(savepath_plots/ 'x_256_noisy.csv',index=False) #save to file
 
     #Then, to reload:
-    df_theta = pd.read_csv('theta_256_noisy.csv')
-    theta_256_noisy = df_theta.values
-    df_x = pd.read_csv('x_256_noisy.csv')
-    x = df_x.values
+    df_theta_512 = pd.read_csv(savepath_plots/ 'theta_256_noisy.csv')
+    theta_256_noisy = df_theta_512.values
+    df_x_512 = pd.read_csv(savepath_plots/ 'x_256_noisy.csv')
+    x = df_x_512.values
     theta_256_noisy, x_256_noisy = torch.from_numpy(theta_256_noisy), torch.from_numpy(x)
 
     res_fig, (ax1, ax2) = plt.subplots(2, figsize=(10,7), gridspec_kw={'height_ratios': [3, 1]})
@@ -512,7 +531,9 @@ def experiment(index: int) -> None:
     ax1.set_ylabel(r'Planet flux $F_\nu$ (10$^{-5}$) Jy', fontsize = 10)
     ax1.legend(handles, texts, prop = {'size': 8}, bbox_to_anchor=(1,1))
 
-    residuals = (x_256_noisy - x_star.cpu()) / torch.Tensor(d.err*d.flux_scaling*config['noise_scaling'])
+    # residuals = (x_256_noisy - x_star.cpu()) / (torch.Tensor(d.err*d.flux_scaling)*theta_star[-1].cpu())
+    residuals = (x_256_noisy - x_star.cpu()) / (torch.Tensor(d.err*d.flux_scaling)*torch.unsqueeze(theta_256_noisy[:,-1].cpu(),1))
+
 
     for q, l in zip(creds[:-1], levels):
         lower, upper = np.quantile(residuals, [0.5 - q / 2, 0.5 + q / 2], axis=0)
