@@ -1,1 +1,1 @@
-# Highres
+# highres-sbi

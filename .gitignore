@@ -1,0 +1,24 @@
+# ignore dawgz created
+.dawgz
+#sbi/.dawgz/
+#simulations/.dawgz/
+
+# ignore python checkpoints
+.ipynb_checkpoints
+#sbi/.ipynb_checkpoints/
+#simulations/.ipynb_checkpoints/
+#Sam/.ipynb_checkpoints/
+
+# ignore joblib
+joblib
+
+# ignore pycache
+__pycache__
+#sbi/__pycache__/
+#simulations/__pycache__/
+
+# ignore wandb
+wandb
+#sbi/wandb/
+
+

@@ -46,7 +46,6 @@ from parameter_set_script import param_set, param_list, param_list_ext, param_se
 # from ..simulations.parameter_set_script import param_set, param_list, param_list_ext, param_set_ext, deNormVal
 
 
-print('here i am')
 
 # from ees import Simulator, LOWER, UPPER, LABELS, pt_profile
 LABELS, LOWER, UPPER = zip(*[
@@ -120,24 +119,24 @@ def simulator(theta):
 
 ## Loading from a model to plot
 CONFIGS = {
-    'embedding': ['deep'],
-    'flow': ['MAF'],  #, 'NCSF', 'SOSPF', 'UNAF', 'CNF'], #'NAF', 
-    'transforms': [3], #, 7], #3, 
+    'embedding': ['shallow'], ##################-
+    'flow': ['MAF'],  ##################-      #, 'NCSF', 'SOSPF', 'UNAF', 'CNF'], #'NAF', 
+    'transforms': [7], ##################-       #, 7], #3, 
     # 'signal': [16, 32],  # not important- the autoregression network output , 32
-    'hidden_features': [512], # hidden layers of the autoregression network , 256, 
-    'hidden_features_no' : [5], 
+    'hidden_features': [256], ##################-     # hidden layers of the autoregression network , 256, 
+    'hidden_features_no' : [5], ##################-
     'activation': [nn.ELU], #, nn.ReLU],
     'optimizer': ['AdamW'],
-    'init_lr':  [1e-5], #[5e-4, 1e-5]
-    'weight_decay': [1e-2], #[1e-4], #
+    'init_lr':  [1e-3], #[5e-4, 1e-5]
+    'weight_decay': [1e-3], #[1e-4], #
     'scheduler': ['ReduceLROnPlateau'], #, 'CosineAnnealingLR'],
     'min_lr': [1e-6], # 1e-6
     'patience': [32], #8
-    'epochs': [900],
+    'epochs': [850], ##################-
     'stop_criterion': ['early'], #, 'late'],
-    'batch_size':  [256],
+    'batch_size':  [1024],
     'spectral_length' : [6144], #[1536, 3072, 6144]
-    'factor' : [0.3], 
+    'factor' : [0.5], 
     # 'noise_scaling' : [2], 
     'noise' : ['lognormaldist']
     # 'SOSF_degree' : [2,3,4],
@@ -145,7 +144,7 @@ CONFIGS = {
 }
 
 
-@job(array=3, cpus=2, gpus=1, ram='128GB', time='10-00:00:00')
+@job(array=2, cpus=2, gpus=1, ram='128GB', time='10-00:00:00')
 def experiment(index: int) -> None:
     # Config
     config = {
@@ -359,7 +358,7 @@ def experiment(index: int) -> None:
 
 ############################################################
     # Loading from a model to plot
-    m = 'comfy-star-89' #'peachy-feather-81' #'comfy-dawn-59'
+    m = 'honest-totem-81' #'winter-gorge-81' #'honest-totem-81' #'dutiful-shape-92'   #'comfy-star-89' #'peachy-feather-81' #'comfy-dawn-59'
     epoch = config['epochs']
     runpath = savepath / m
     runpath.mkdir(parents=True, exist_ok=True)
@@ -372,6 +371,8 @@ def experiment(index: int) -> None:
 ############################################################
         
     # savepath_plots = runpath  / ('plots_sim_b_' + str(epoch))
+    # savepath_plots.mkdir(parents=True, exist_ok=True)
+
 
     savepath_plots = runpath  / ('plots_' + str(epoch))
     savepath_plots.mkdir(parents=True, exist_ok=True)

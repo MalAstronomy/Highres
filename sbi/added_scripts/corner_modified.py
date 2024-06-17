@@ -14,7 +14,7 @@ from parameter_set_script import LABELS, LOWER, UPPER
 
 
 def corner_mod(theta, legend=['NPE', 'NS'], color= ['steelblue', 'orange'] , figsize=(10,10), \
-               domain = (LOWER[12:], UPPER[12:]), labels= LABELS[12:] ):
+               domain = (None, None) , labels= LABELS[12:] ):  #(LOWER[12:], UPPER[12:])
 
     # creating a whole new figure and define legends needed
     figure, axes = plt.subplots( figsize[0], figsize[0], squeeze=False, sharex='col', \
